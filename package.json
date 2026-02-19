@@ -1,0 +1,50 @@
+{
+  "name": "meetmate",
+  "version": "0.1.0",
+  "description": "Meeting assistant for structured in-person sessions",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "electron-vite build",
+    "preview": "cross-env ELECTRON_RUN_AS_NODE=0 electron-vite preview",
+    "rebuild-native": "electron-rebuild -f -w better-sqlite3",
+    "package": "electron-vite build && electron-builder"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "cross-env": "^10.1.0",
+    "electron": "^32.3.3",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.0",
+    "better-sqlite3": "^11.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0",
+    "ws": "^8.19.0"
+  },
+  "build": {
+    "appId": "com.opanabilitylabs.meetmate",
+    "productName": "MeetMate",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*"
+    ]
+  }
+}

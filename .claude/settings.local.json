@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(npm run build:*)",
+      "Bash(npx electron-rebuild:*)",
+      "Bash(node -e:*)",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(node_modules/.bin/electron:*)",
+      "Bash(npm install:*)",
+      "Bash(cat:*)",
+      "Bash(echo:*)",
+      "Bash(ELECTRON_RUN_AS_NODE= timeout 10 node_modules/.bin/electron:*)",
+      "Bash(env -u ELECTRON_RUN_AS_NODE timeout 10 node_modules/.bin/electron:*)",
+      "Bash(pip install:*)",
+      "Bash(pip index:*)",
+      "Bash(kill:*)",
+      "Bash(/e/OpanAbilityLabs/MeetMate/python/.env:*)"
+    ]
+  }
+}
