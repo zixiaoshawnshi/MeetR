@@ -111,8 +111,9 @@ npm run build
 npm run package
 ```
 
-Packaged builds include the `python/` service files and auto-start the transcription service on app launch.
-Current requirement: Python runtime and required Python packages must still be available on the target machine.
+Packaged builds include `python/` service files and auto-start the transcription service on app launch.
+To keep installer size smaller, `.venv` is not bundled. On first packaged launch, the app creates a runtime venv and installs `python/requirements.txt`.
+Current requirement: Python must be installed and available on PATH on the target machine.
 
 ## Notes
 
