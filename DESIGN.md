@@ -319,16 +319,17 @@ meetmate_{session_title}_{date}/
 - [x] Recording indicator in toolbar (red dot + "Recording" label)
 
 ### Phase 3 — Notes and Agenda
-- [ ] Manual notes auto-save
-- [ ] Agenda panel: view mode (rendered markdown) and edit mode (textarea)
-- [ ] Agenda persisted to SQLite
+- [x] Manual notes auto-save
+- [x] Agenda panel: view mode (rendered markdown) and edit mode (textarea)
+- [x] Agenda persisted to SQLite
 
 ### Phase 4 — AI Assistant
-- [ ] Claude API integration in main process
-- [ ] Prompt construction from SQLite data
-- [ ] Response parsing (summary + agenda)
-- [ ] Summary panel with streaming display
-- [ ] Agenda panel auto-update from AI response
+- [x] LLM Provider settings, Ollama (local), Anthropic, OpenAI, OpenRouter
+- [x] Claude API integration in main process
+- [x] Prompt construction from SQLite data
+- [x] Response parsing (summary + agenda)
+- [x] Summary panel with streaming display
+- [x] Agenda panel auto-update from AI response
 
 ### Phase 5 — Export and Polish
 - [ ] Markdown export per section
