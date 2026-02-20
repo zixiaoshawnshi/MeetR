@@ -32,12 +32,8 @@ Implemented:
 - agenda view/edit mode with auto-save to SQLite
 - agenda lock while AI update is running
 - AI Update with modular provider routing
-- AI providers wired: Anthropic, Ollama
+- AI providers wired: Anthropic, Ollama, OpenAI, OpenRouter
 - settings UI for provider/model + provider credentials/connection settings
-
-Not yet wired:
-- OpenAI provider calls
-- OpenRouter provider calls
 
 ## Architecture
 
