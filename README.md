@@ -1,8 +1,20 @@
 # MeetMate
 
-MeetMate is a desktop meeting assistant for structured in-person sessions.
+MeetMate is a privacy-first desktop meeting assistant for structured in-person sessions.
 
-It combines:
+## Privacy First
+
+MeetMate can run fully local:
+- local transcription service (Python)
+- local data storage (SQLite)
+- local recordings (WAV files)
+- local AI summarization via Ollama
+
+If you choose Ollama as your AI provider, no transcript/notes/agenda need to leave your machine.
+Cloud providers (Anthropic/OpenAI/OpenRouter) are optional.
+
+## What It Does
+
 - live transcription + recording
 - manual notes and agenda tracking
 - AI-generated meeting summary + agenda updates
@@ -19,12 +31,13 @@ Implemented:
 - manual notes auto-save to SQLite
 - agenda view/edit mode with auto-save to SQLite
 - agenda lock while AI update is running
-- AI Update (Anthropic Claude) with persisted summary + updated agenda
-- settings UI for AI provider/model + provider keys
+- AI Update with modular provider routing
+- AI providers wired: Anthropic, Ollama
+- settings UI for provider/model + provider credentials/connection settings
 
-Partially implemented:
-- multi-provider AI settings are present (Ollama/OpenAI/OpenRouter/Anthropic),
-  but only Anthropic is currently wired for requests.
+Not yet wired:
+- OpenAI provider calls
+- OpenRouter provider calls
 
 ## Architecture
 
@@ -44,6 +57,10 @@ Partially implemented:
 - Python 3.10+
 - `ffmpeg` on PATH (required for local diarization workflows)
 
+For full local AI mode:
+- Ollama running locally (default: `http://127.0.0.1:11434`)
+- a local model pulled in Ollama (for example: `llama3.1:8b`)
+
 ## Local Setup
 
 1. Install Node dependencies:
@@ -61,13 +78,16 @@ python -m venv .venv
 pip install -r python/requirements.txt
 ```
 
-3. (Optional) Create `python/.env` and add:
+3. (Optional for local diarization) Create `python/.env` and add:
 
 ```env
 HUGGINGFACE_TOKEN=...
 ```
 
-4. In app Settings, add your Anthropic API key and choose model/provider.
+4. In app Settings:
+- choose AI Provider (`ollama` for local mode)
+- set model name
+- set Ollama base URL if not default
 
 ## Run (Development)
 
@@ -97,9 +117,9 @@ npm run package
 
 ## Notes
 
-- The app stores data in SQLite via `better-sqlite3`.
+- App data is stored locally in SQLite via `better-sqlite3`.
 - Recordings are stored per session; output base directory is configurable in Settings.
-- If AI update fails, check provider key/model in Settings and app logs.
+- If AI update fails, check provider/model settings and local/cloud credentials.
 
 ## Design Doc
 
