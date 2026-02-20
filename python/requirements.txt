@@ -5,3 +5,5 @@ webrtcvad-wheels==2.0.14
 requests
 huggingface_hub
 pyannote.audio
+numpy
+torch
