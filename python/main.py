@@ -122,6 +122,7 @@ async def handle_client(ws) -> None:
                 output_path = msg.get("output_path")
                 input_device_id = msg.get("input_device_id")
                 transcription_mode = msg.get("transcription_mode")
+                diarization_enabled = msg.get("diarization_enabled")
                 huggingface_token = msg.get("huggingface_token")
                 local_model_path = msg.get("local_diarization_model_path")
                 deepgram_api_key = msg.get("deepgram_api_key")
@@ -130,6 +131,8 @@ async def handle_client(ws) -> None:
                     input_device_id = None
                 if transcription_mode not in {"local", "deepgram"}:
                     transcription_mode = "local"
+                if not isinstance(diarization_enabled, bool):
+                    diarization_enabled = False
                 if not isinstance(huggingface_token, str):
                     huggingface_token = ""
                 if not isinstance(local_model_path, str) or not local_model_path.strip():
@@ -142,7 +145,7 @@ async def handle_client(ws) -> None:
                 token_for_session = huggingface_token.strip() or (ENV_HF_TOKEN or "")
                 tracker = (
                     SpeakerTracker(token_for_session, model_source=local_model_path)
-                    if (token_for_session or local_model_path)
+                    if diarization_enabled and (token_for_session or local_model_path)
                     else None
                 )
                 if transcription_mode == "deepgram" and not deepgram_api_key.strip():
@@ -165,6 +168,7 @@ async def handle_client(ws) -> None:
                     output_path=wav_path,
                     input_device=input_device_id,
                     transcription_mode=transcription_mode,
+                    diarization_enabled=diarization_enabled,
                     deepgram_api_key=deepgram_api_key,
                     deepgram_model=deepgram_model,
                 )

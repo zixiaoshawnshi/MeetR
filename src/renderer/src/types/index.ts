@@ -57,6 +57,7 @@ export interface AppSettings {
   }
   transcription: {
     mode: TranscriptionMode
+    diarizationEnabled: boolean
     huggingFaceToken: string
     localDiarizationModelPath: string | null
     deepgramApiKey: string

@@ -15,6 +15,7 @@ export interface AppSettings {
   }
   transcription: {
     mode: TranscriptionMode
+    diarizationEnabled: boolean
     huggingFaceToken: string
     localDiarizationModelPath: string | null
     deepgramApiKey: string
@@ -43,6 +44,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   },
   transcription: {
     mode: 'local',
+    diarizationEnabled: false,
     huggingFaceToken: '',
     localDiarizationModelPath: null,
     deepgramApiKey: '',

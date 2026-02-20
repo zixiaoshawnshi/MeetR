@@ -36,6 +36,7 @@ export default function SettingsModal({
   const [recordingsBaseDir, setRecordingsBaseDir] = useState<string>('')
   const [defaultInputDeviceId, setDefaultInputDeviceId] = useState<string>('')
   const [transcriptionMode, setTranscriptionMode] = useState<'local' | 'deepgram'>('local')
+  const [diarizationEnabled, setDiarizationEnabled] = useState(false)
   const [huggingFaceToken, setHuggingFaceToken] = useState('')
   const [deepgramApiKey, setDeepgramApiKey] = useState('')
   const [deepgramModel, setDeepgramModel] = useState('')
@@ -48,6 +49,7 @@ export default function SettingsModal({
       settings.audio.defaultInputDeviceId === null ? '' : String(settings.audio.defaultInputDeviceId)
     )
     setTranscriptionMode(settings.transcription.mode)
+    setDiarizationEnabled(settings.transcription.diarizationEnabled)
     setHuggingFaceToken(settings.transcription.huggingFaceToken)
     setDeepgramApiKey(settings.transcription.deepgramApiKey)
     setDeepgramModel(settings.transcription.deepgramModel)
@@ -74,6 +76,7 @@ export default function SettingsModal({
       },
       transcription: {
         mode: transcriptionMode,
+        diarizationEnabled,
         huggingFaceToken: huggingFaceToken.trim(),
         deepgramApiKey: deepgramApiKey.trim(),
         deepgramModel: deepgramModel.trim() || 'nova-2'
@@ -138,23 +141,6 @@ export default function SettingsModal({
           </section>
 
           <section className="space-y-2">
-            <h3 className="text-xs uppercase tracking-wider text-gray-400 font-semibold">Audio</h3>
-            <label className="text-xs text-gray-500 block">Default Microphone</label>
-            <select
-              value={defaultInputDeviceId}
-              onChange={(e) => setDefaultInputDeviceId(e.target.value)}
-              className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
-            >
-              <option value="">Use system/default available input</option>
-              {defaultMicOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </section>
-
-          <section className="space-y-2">
             <h3 className="text-xs uppercase tracking-wider text-gray-400 font-semibold">Transcription</h3>
             <label className="text-xs text-gray-500 block">Mode</label>
             <select
@@ -165,6 +151,15 @@ export default function SettingsModal({
               <option value="local">Local</option>
               <option value="deepgram">Deepgram</option>
             </select>
+            <label className="flex items-center gap-2 mt-2">
+              <input
+                type="checkbox"
+                checked={diarizationEnabled}
+                onChange={(e) => setDiarizationEnabled(e.target.checked)}
+                className="rounded border-gray-600 bg-gray-900 text-blue-500"
+              />
+              <span className="text-xs text-gray-300">Enable diarization (experimental)</span>
+            </label>
             <label className="text-xs text-gray-500 block mt-2">Deepgram API Key</label>
             <input
               value={deepgramApiKey}
@@ -180,6 +175,7 @@ export default function SettingsModal({
               placeholder="Required for local pyannote diarization"
               className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
               type="password"
+              disabled={!diarizationEnabled}
             />
             <label className="text-xs text-gray-500 block mt-2">Local Diarization Model Path</label>
             <input
@@ -190,7 +186,7 @@ export default function SettingsModal({
             />
             <div className="flex gap-2 mt-2">
               <button
-                disabled={modelOpBusy}
+                disabled={modelOpBusy || !diarizationEnabled}
                 onClick={async () => {
                   setModelOpBusy(true)
                   const res = await onDownloadDiarizationModel()
@@ -202,7 +198,7 @@ export default function SettingsModal({
                 Download Model
               </button>
               <button
-                disabled={modelOpBusy}
+                disabled={modelOpBusy || !diarizationEnabled}
                 onClick={async () => {
                   setModelOpBusy(true)
                   const res = await onValidateDiarizationModel()
@@ -222,6 +218,23 @@ export default function SettingsModal({
               placeholder="nova-2"
               className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
             />
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-xs uppercase tracking-wider text-gray-400 font-semibold">Audio</h3>
+            <label className="text-xs text-gray-500 block">Default Microphone</label>
+            <select
+              value={defaultInputDeviceId}
+              onChange={(e) => setDefaultInputDeviceId(e.target.value)}
+              className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+            >
+              <option value="">Use system/default available input</option>
+              {defaultMicOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </section>
 
           <section className="space-y-2">

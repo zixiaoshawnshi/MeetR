@@ -48,6 +48,7 @@ class TranscriptionEngine:
         output_path: Optional[str] = None,
         input_device: Optional[int] = None,
         transcription_mode: str = "local",
+        diarization_enabled: bool = False,
         deepgram_api_key: str = "",
         deepgram_model: str = "nova-2",
     ):
@@ -58,6 +59,7 @@ class TranscriptionEngine:
         self._output_path = output_path
         self._input_device = input_device
         self._transcription_mode = transcription_mode
+        self._diarization_enabled = diarization_enabled
         self._deepgram_api_key = deepgram_api_key.strip()
         self._deepgram_model = deepgram_model.strip() or "nova-2"
 
@@ -246,7 +248,7 @@ class TranscriptionEngine:
                 if not text:
                     return
 
-                if self._speaker_tracker is not None:
+                if self._diarization_enabled and self._speaker_tracker is not None:
                     speaker = self._speaker_tracker.assign(pcm)
                 else:
                     speaker = "Speaker 1"
@@ -297,8 +299,8 @@ class TranscriptionEngine:
 
         params = {
             "model": self._deepgram_model,
-            "diarize": "true",
-            "utterances": "true",
+            "diarize": "true" if self._diarization_enabled else "false",
+            "utterances": "true" if self._diarization_enabled else "false",
             "smart_format": "true",
             "punctuate": "true",
             "language": self.language,
@@ -319,7 +321,7 @@ class TranscriptionEngine:
         body = response.json()
         channel = body.get("results", {}).get("channels", [{}])[0]
         alt = channel.get("alternatives", [{}])[0]
-        utterances = body.get("results", {}).get("utterances", [])
+        utterances = body.get("results", {}).get("utterances", []) if self._diarization_enabled else []
         out: list[dict] = []
         if isinstance(utterances, list) and len(utterances) > 0:
             for utt in utterances:
