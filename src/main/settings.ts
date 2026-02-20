@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 
 export type TranscriptionMode = 'local' | 'deepgram'
-export type AiProvider = 'anthropic'
+export type AiProvider = 'ollama' | 'anthropic' | 'openai' | 'openrouter'
 
 export interface AppSettings {
   version: 1
@@ -23,7 +23,12 @@ export interface AppSettings {
   }
   ai: {
     provider: AiProvider
+    model: string
     anthropicApiKey: string
+    openaiApiKey: string
+    openrouterApiKey: string
+    ollamaBaseUrl: string
+    ollamaApiKey: string
   }
 }
 
@@ -52,7 +57,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   },
   ai: {
     provider: 'anthropic',
-    anthropicApiKey: ''
+    model: 'claude-sonnet-4-6',
+    anthropicApiKey: '',
+    openaiApiKey: '',
+    openrouterApiKey: '',
+    ollamaBaseUrl: 'http://127.0.0.1:11434',
+    ollamaApiKey: ''
   }
 }
 

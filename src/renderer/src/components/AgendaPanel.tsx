@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 interface AgendaPanelProps {
   content: string
+  onChange: (content: string) => void
+  locked: boolean
 }
 
 const PLACEHOLDER = `- [ ] Introduction
@@ -12,11 +14,12 @@ const PLACEHOLDER = `- [ ] Introduction
 - [ ] Topic 2
 - [ ] Next steps`
 
-export default function AgendaPanel({ content }: AgendaPanelProps) {
+export default function AgendaPanel({ content, onChange, locked }: AgendaPanelProps) {
   const [editMode, setEditMode] = useState(false)
-  const [draft, setDraft] = useState(content)
 
-  const displayContent = content || draft
+  useEffect(() => {
+    if (locked) setEditMode(false)
+  }, [locked])
 
   return (
     <div className="flex flex-col w-80 shrink-0 bg-gray-900 overflow-hidden">
@@ -25,23 +28,30 @@ export default function AgendaPanel({ content }: AgendaPanelProps) {
         <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Agenda</span>
         <button
           onClick={() => setEditMode((v) => !v)}
-          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          disabled={locked}
+          className="text-xs text-gray-500 hover:text-gray-300 transition-colors disabled:text-gray-600 disabled:cursor-not-allowed"
         >
-          {editMode ? 'View' : 'Edit'}
+          {locked ? 'Locked' : editMode ? 'View' : 'Edit'}
         </button>
       </div>
 
       {/* Panel body */}
       <div className="flex-1 overflow-y-auto p-3">
+        {locked && (
+          <div className="mb-3 px-2 py-1.5 rounded border border-amber-800/70 bg-amber-950/30 text-amber-300 text-xs">
+            Agenda editing is locked while AI summarization is running.
+          </div>
+        )}
         {editMode ? (
           <textarea
             className="w-full h-full min-h-40 bg-transparent text-gray-300 text-sm font-mono resize-none outline-none placeholder-gray-600"
-            value={draft || content}
-            onChange={(e) => setDraft(e.target.value)}
+            value={content}
+            onChange={(e) => onChange(e.target.value)}
             placeholder={PLACEHOLDER}
             spellCheck={false}
+            disabled={locked}
           />
-        ) : displayContent ? (
+        ) : content ? (
           <div className="prose-dark text-sm">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -59,7 +69,7 @@ export default function AgendaPanel({ content }: AgendaPanelProps) {
                 )
               }}
             >
-              {displayContent}
+              {content}
             </ReactMarkdown>
           </div>
         ) : (
@@ -67,7 +77,8 @@ export default function AgendaPanel({ content }: AgendaPanelProps) {
             <p className="text-gray-600 text-sm">No agenda yet.</p>
             <button
               onClick={() => setEditMode(true)}
-              className="text-xs text-blue-500 hover:text-blue-400 transition-colors"
+              disabled={locked}
+              className="text-xs text-blue-500 hover:text-blue-400 transition-colors disabled:text-gray-600 disabled:cursor-not-allowed"
             >
               + Add agenda items
             </button>

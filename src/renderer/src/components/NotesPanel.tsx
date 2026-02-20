@@ -1,8 +1,9 @@
 interface NotesPanelProps {
   content: string
+  onChange: (content: string) => void
 }
 
-export default function NotesPanel({ content }: NotesPanelProps) {
+export default function NotesPanel({ content, onChange }: NotesPanelProps) {
   return (
     <div className="flex flex-col w-72 shrink-0 bg-gray-900 overflow-hidden">
       {/* Panel header */}
@@ -16,7 +17,8 @@ export default function NotesPanel({ content }: NotesPanelProps) {
       <div className="flex-1 overflow-hidden p-3">
         <textarea
           className="w-full h-full bg-transparent text-sm text-gray-300 resize-none outline-none placeholder-gray-600 leading-relaxed"
-          defaultValue={content}
+          value={content}
+          onChange={(e) => onChange(e.target.value)}
           placeholder="Type notes here during the meeting…&#10;&#10;These will be included when the AI generates a summary."
           spellCheck
         />

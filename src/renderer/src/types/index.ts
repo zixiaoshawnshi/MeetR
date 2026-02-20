@@ -10,6 +10,7 @@ export interface SessionData extends Session {
   notes_content: string
   agenda_content: string
   latest_summary: string | null
+  latest_summary_generated_at: string | null
 }
 
 export interface TranscriptSegment {
@@ -45,7 +46,7 @@ export interface SessionRecording {
 }
 
 export type TranscriptionMode = 'local' | 'deepgram'
-export type AiProvider = 'anthropic'
+export type AiProvider = 'ollama' | 'anthropic' | 'openai' | 'openrouter'
 
 export interface AppSettings {
   version: 1
@@ -65,7 +66,12 @@ export interface AppSettings {
   }
   ai: {
     provider: AiProvider
+    model: string
     anthropicApiKey: string
+    openaiApiKey: string
+    openrouterApiKey: string
+    ollamaBaseUrl: string
+    ollamaApiKey: string
   }
 }
 
@@ -89,12 +95,21 @@ export interface DmOpResult {
   path?: string
 }
 
+export interface AiUpdateResult {
+  summary: string
+  agenda: string
+  model_used: string
+  generated_at: string
+}
+
 export interface WindowAPI {
   session: {
     list: () => Promise<Session[]>
     create: (title: string) => Promise<Session>
     get: (id: number) => Promise<SessionData | null>
     updateTitle: (id: number, title: string) => Promise<void>
+    updateNotes: (id: number, content: string) => Promise<void>
+    updateAgenda: (id: number, content: string) => Promise<void>
     delete: (id: number) => Promise<void>
   }
   transcription: {
@@ -122,6 +137,9 @@ export interface WindowAPI {
   }
   menu: {
     onAction: (cb: (action: MenuAction) => void) => () => void
+  }
+  ai: {
+    update: (sessionId: number) => Promise<AiUpdateResult>
   }
 }
 

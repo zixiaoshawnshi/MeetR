@@ -4,6 +4,7 @@ import { initDatabase } from './database'
 import { registerSessionHandlers } from './ipc/sessions'
 import { registerRecordingHandlers } from './ipc/recordings'
 import { registerSettingsHandlers } from './ipc/settings'
+import { registerAiHandlers } from './ipc/ai'
 import {
   registerTranscriptionHandlers,
   stopActiveTranscriptionForShutdown
@@ -80,6 +81,7 @@ app.whenReady().then(() => {
   registerSessionHandlers()
   registerRecordingHandlers()
   registerSettingsHandlers()
+  registerAiHandlers()
   registerTranscriptionHandlers()
   setupApplicationMenu()
   createWindow()

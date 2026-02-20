@@ -18,6 +18,8 @@ import ConsentDialog from './components/ConsentDialog'
 import RecordingsPanel from './components/RecordingsPanel'
 import SettingsModal from './components/SettingsModal'
 
+const AUTOSAVE_DEBOUNCE_MS = 500
+
 export default function App() {
   const [session, setSession] = useState<SessionData | null>(null)
   const [showSessionList, setShowSessionList] = useState(true)
@@ -34,6 +36,10 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [pathsInfo, setPathsInfo] = useState<AppPathsInfo | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [notesContent, setNotesContent] = useState('')
+  const [agendaContent, setAgendaContent] = useState('')
+  const [aiSummarizing, setAiSummarizing] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
 
   const consentGivenRef = useRef(false)
 
@@ -103,12 +109,16 @@ export default function App() {
       const data = await window.api.session.get(id)
       if (data) {
         setSession(data)
+        setNotesContent(data.notes_content)
+        setAgendaContent(data.agenda_content)
         setSegments([])
         setRecordings([])
         setShowRecordingsPanel(false)
         setRecording(false)
         setStoppingRecording(false)
         setRecordError(null)
+        setAiError(null)
+        setAiSummarizing(false)
         consentGivenRef.current = false
         setShowSessionList(false)
         await loadRecordings(id)
@@ -228,6 +238,88 @@ export default function App() {
     [session]
   )
 
+  const handleAiUpdate = useCallback(async () => {
+    if (!session) return
+    const sessionId = session.id
+    setAiError(null)
+    setAiSummarizing(true)
+
+    try {
+      // Flush draft edits so prompt construction reads latest values from DB.
+      await window.api.session.updateNotes(sessionId, notesContent)
+      await window.api.session.updateAgenda(sessionId, agendaContent)
+
+      const result = await window.api.ai.update(sessionId)
+      setAgendaContent(result.agenda)
+      setSession((prev) =>
+        prev && prev.id === sessionId
+          ? {
+              ...prev,
+              notes_content: notesContent,
+              agenda_content: result.agenda,
+              latest_summary: result.summary,
+              latest_summary_generated_at: result.generated_at
+            }
+          : prev
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'AI update failed'
+      setAiError(message)
+    } finally {
+      setAiSummarizing(false)
+    }
+  }, [session, notesContent, agendaContent])
+
+  useEffect(() => {
+    if (!session) return
+    setNotesContent(session.notes_content)
+    setAgendaContent(session.agenda_content)
+  }, [session?.id, session?.notes_content, session?.agenda_content])
+
+  useEffect(() => {
+    if (!session) return
+    if (notesContent === session.notes_content) return
+
+    const sessionId = session.id
+    const nextContent = notesContent
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await window.api.session.updateNotes(sessionId, nextContent)
+          setSession((prev) =>
+            prev && prev.id === sessionId ? { ...prev, notes_content: nextContent } : prev
+          )
+        } catch (error) {
+          console.error('Failed to auto-save notes', error)
+        }
+      })()
+    }, AUTOSAVE_DEBOUNCE_MS)
+
+    return () => window.clearTimeout(timeout)
+  }, [session, notesContent])
+
+  useEffect(() => {
+    if (!session) return
+    if (agendaContent === session.agenda_content) return
+
+    const sessionId = session.id
+    const nextContent = agendaContent
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await window.api.session.updateAgenda(sessionId, nextContent)
+          setSession((prev) =>
+            prev && prev.id === sessionId ? { ...prev, agenda_content: nextContent } : prev
+          )
+        } catch (error) {
+          console.error('Failed to auto-save agenda', error)
+        }
+      })()
+    }, AUTOSAVE_DEBOUNCE_MS)
+
+    return () => window.clearTimeout(timeout)
+  }, [session, agendaContent])
+
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-gray-100 overflow-hidden">
       {showConsent && !showSessionList && (
@@ -246,8 +338,11 @@ export default function App() {
             recording={recording}
             stoppingRecording={stoppingRecording}
             recordError={recordError}
+            aiBusy={aiSummarizing}
+            aiError={aiError}
             onTitleChange={handleTitleChange}
             onRecord={handleRecord}
+            onAiUpdate={handleAiUpdate}
             onRecordingsClick={() => setShowRecordingsPanel(true)}
             recordingsCount={recordings.length}
             inputDevices={inputDevices}
@@ -257,15 +352,22 @@ export default function App() {
 
           <div className="flex flex-col flex-1 min-h-0">
             <div className="flex flex-1 min-h-0 divide-x divide-gray-700">
-              <AgendaPanel content={session?.agenda_content ?? ''} />
+              <AgendaPanel
+                content={agendaContent}
+                onChange={setAgendaContent}
+                locked={aiSummarizing}
+              />
               <TranscriptPanel
                 segments={segments}
                 sessionId={session?.id}
                 onRenameSpeaker={handleRenameSpeaker}
               />
-              <NotesPanel content={session?.notes_content ?? ''} />
+              <NotesPanel content={notesContent} onChange={setNotesContent} />
             </div>
-            <SummaryPanel content={session?.latest_summary ?? null} />
+            <SummaryPanel
+              content={session?.latest_summary ?? null}
+              lastUpdated={session?.latest_summary_generated_at ?? undefined}
+            />
           </div>
 
           <RecordingsPanel

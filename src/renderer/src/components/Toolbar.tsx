@@ -6,8 +6,11 @@ interface ToolbarProps {
   recording: boolean
   stoppingRecording: boolean
   recordError: string | null
+  aiBusy: boolean
+  aiError: string | null
   onTitleChange: (title: string) => void
   onRecord: () => void
+  onAiUpdate: () => void
   onRecordingsClick: () => void
   recordingsCount: number
   inputDevices: TranscriptionInputDevice[]
@@ -20,8 +23,11 @@ export default function Toolbar({
   recording,
   stoppingRecording,
   recordError,
+  aiBusy,
+  aiError,
   onTitleChange,
   onRecord,
+  onAiUpdate,
   onRecordingsClick,
   recordingsCount,
   inputDevices,
@@ -50,14 +56,12 @@ export default function Toolbar({
   return (
     <div className="flex flex-col shrink-0">
       <div className="flex items-center gap-3 px-4 h-12 bg-gray-900 border-b border-gray-700">
-        {/* Logo mark */}
         <div className="flex items-center gap-2 shrink-0">
           <div className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center">
             <span className="text-white text-xs font-bold">MM</span>
           </div>
         </div>
 
-        {/* Editable session title */}
         <div className="flex-1 min-w-0">
           {editingTitle ? (
             <input
@@ -85,7 +89,6 @@ export default function Toolbar({
           )}
         </div>
 
-        {/* Right-side controls */}
         <div className="flex items-center gap-2 shrink-0">
           <label className="flex items-center gap-2 text-xs text-gray-400">
             <span>Mic</span>
@@ -109,7 +112,6 @@ export default function Toolbar({
             </select>
           </label>
 
-          {/* Recording state indicator */}
           <div className="flex items-center gap-1.5 text-xs select-none">
             {recording ? (
               <>
@@ -124,7 +126,6 @@ export default function Toolbar({
             )}
           </div>
 
-          {/* Record / Stop button */}
           <button
             onClick={onRecord}
             disabled={!session || stoppingRecording}
@@ -138,14 +139,21 @@ export default function Toolbar({
             {stoppingRecording ? 'Finishing...' : recording ? 'Stop' : 'Record'}
           </button>
 
-          {/* AI Update button — placeholder (Phase 4) */}
           <button
-            disabled
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-gray-800 text-gray-500 border border-gray-700 cursor-not-allowed"
-            title="AI assistant not yet configured (Phase 4)"
+            onClick={onAiUpdate}
+            disabled={!session || aiBusy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-gray-800 text-gray-300 border border-gray-700 hover:bg-gray-700 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Generate updated summary and agenda"
           >
-            <span className="text-sm">✦</span>
-            AI Update
+            {aiBusy ? (
+              <span
+                className="inline-block w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"
+                aria-hidden="true"
+              />
+            ) : (
+              <span className="text-sm">*</span>
+            )}
+            {aiBusy ? 'Updating...' : 'AI Update'}
           </button>
 
           <button
@@ -158,15 +166,20 @@ export default function Toolbar({
         </div>
       </div>
 
-      {/* Error banner */}
       {recordError && (
         <div className="flex items-center gap-2 px-4 py-1.5 bg-red-950/60 border-b border-red-900/50">
-          <span className="text-red-400 text-xs">⚠</span>
+          <span className="text-red-400 text-xs">!</span>
           <span className="text-red-300 text-xs">{recordError}</span>
           <span className="text-red-500 text-xs ml-1">
-            — Make sure the Python transcription service is running:{' '}
-            <code className="font-mono">python python/main.py</code>
+            Make sure the Python transcription service is running: <code className="font-mono">python python/main.py</code>
           </span>
+        </div>
+      )}
+
+      {aiError && (
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-amber-950/50 border-b border-amber-900/50">
+          <span className="text-amber-400 text-xs">AI</span>
+          <span className="text-amber-300 text-xs">{aiError}</span>
         </div>
       )}
     </div>

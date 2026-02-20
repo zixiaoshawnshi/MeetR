@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AiProvider,
   DmOpResult,
   AppPathsInfo,
   AppSettings,
@@ -19,6 +20,13 @@ interface SettingsModalProps {
   onValidateDiarizationModel: () => Promise<DmOpResult>
 }
 
+const PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
+  anthropic: 'claude-sonnet-4-6',
+  openai: 'gpt-4.1',
+  openrouter: 'anthropic/claude-sonnet-4.5',
+  ollama: 'llama3.1:8b'
+}
+
 export default function SettingsModal({
   open,
   settings,
@@ -33,14 +41,25 @@ export default function SettingsModal({
   const [saving, setSaving] = useState(false)
   const [modelOpBusy, setModelOpBusy] = useState(false)
   const [modelOpMessage, setModelOpMessage] = useState<string>('')
+
   const [recordingsBaseDir, setRecordingsBaseDir] = useState<string>('')
   const [defaultInputDeviceId, setDefaultInputDeviceId] = useState<string>('')
+
   const [transcriptionMode, setTranscriptionMode] = useState<'local' | 'deepgram'>('local')
   const [diarizationEnabled, setDiarizationEnabled] = useState(false)
   const [huggingFaceToken, setHuggingFaceToken] = useState('')
   const [deepgramApiKey, setDeepgramApiKey] = useState('')
   const [deepgramModel, setDeepgramModel] = useState('')
+
+  const [aiProvider, setAiProvider] = useState<AiProvider>('anthropic')
+  const [aiModel, setAiModel] = useState(PROVIDER_DEFAULT_MODEL.anthropic)
   const [anthropicApiKey, setAnthropicApiKey] = useState('')
+  const [openaiApiKey, setOpenaiApiKey] = useState('')
+  const [openrouterApiKey, setOpenrouterApiKey] = useState('')
+  const [ollamaBaseUrl, setOllamaBaseUrl] = useState('http://127.0.0.1:11434')
+  const [ollamaApiKey, setOllamaApiKey] = useState('')
+
+  const previousProviderRef = useRef<AiProvider | null>(null)
 
   useEffect(() => {
     if (!settings || !open) return
@@ -53,9 +72,27 @@ export default function SettingsModal({
     setHuggingFaceToken(settings.transcription.huggingFaceToken)
     setDeepgramApiKey(settings.transcription.deepgramApiKey)
     setDeepgramModel(settings.transcription.deepgramModel)
+
+    setAiProvider(settings.ai.provider)
+    setAiModel(settings.ai.model || PROVIDER_DEFAULT_MODEL[settings.ai.provider])
     setAnthropicApiKey(settings.ai.anthropicApiKey)
+    setOpenaiApiKey(settings.ai.openaiApiKey)
+    setOpenrouterApiKey(settings.ai.openrouterApiKey)
+    setOllamaBaseUrl(settings.ai.ollamaBaseUrl || 'http://127.0.0.1:11434')
+    setOllamaApiKey(settings.ai.ollamaApiKey)
+    previousProviderRef.current = settings.ai.provider
     setModelOpMessage('')
   }, [settings, open])
+
+  useEffect(() => {
+    if (previousProviderRef.current === null) {
+      previousProviderRef.current = aiProvider
+      return
+    }
+    if (previousProviderRef.current === aiProvider) return
+    setAiModel(PROVIDER_DEFAULT_MODEL[aiProvider])
+    previousProviderRef.current = aiProvider
+  }, [aiProvider])
 
   const defaultMicOptions = useMemo(() => {
     return inputDevices.map((d) => ({
@@ -82,7 +119,13 @@ export default function SettingsModal({
         deepgramModel: deepgramModel.trim() || 'nova-2'
       },
       ai: {
-        anthropicApiKey: anthropicApiKey.trim()
+        provider: aiProvider,
+        model: aiModel.trim() || PROVIDER_DEFAULT_MODEL[aiProvider],
+        anthropicApiKey: anthropicApiKey.trim(),
+        openaiApiKey: openaiApiKey.trim(),
+        openrouterApiKey: openrouterApiKey.trim(),
+        ollamaBaseUrl: ollamaBaseUrl.trim() || 'http://127.0.0.1:11434',
+        ollamaApiKey: ollamaApiKey.trim()
       }
     }
 
@@ -97,7 +140,7 @@ export default function SettingsModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4">
-      <div className="w-full max-w-3xl max-h-[92vh] overflow-hidden rounded-xl border border-gray-700 bg-gray-950">
+      <div className="w-full max-w-5xl max-h-[92vh] overflow-hidden rounded-xl border border-gray-700 bg-gray-950">
         <div className="h-12 px-4 border-b border-gray-800 flex items-center justify-between">
           <p className="text-sm font-semibold text-gray-100">Settings</p>
           <button
@@ -109,48 +152,117 @@ export default function SettingsModal({
         </div>
 
         <div className="p-4 space-y-6 overflow-auto max-h-[calc(92vh-7.5rem)]">
-          <section className="space-y-2">
-            <h3 className="text-xs uppercase tracking-wider text-gray-400 font-semibold">Storage</h3>
-            {pathsInfo && (
-              <div className="rounded border border-gray-800 bg-gray-900/50 p-2 text-xs text-gray-500 space-y-1">
-                <p className="truncate">DB: {pathsInfo.databasePath}</p>
-                <p className="truncate">Settings: {pathsInfo.settingsPath}</p>
+          <section className="rounded-lg border border-gray-800 p-3 space-y-3">
+            <h3 className="text-xs uppercase tracking-wider text-gray-400 font-semibold">AI Assistant</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Provider</label>
+                <select
+                  value={aiProvider}
+                  onChange={(e) => setAiProvider(e.target.value as AiProvider)}
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                >
+                  <option value="anthropic">Anthropic</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="ollama">Ollama</option>
+                </select>
               </div>
-            )}
-            <label className="text-xs text-gray-500 block">Recordings Base Directory</label>
-            <div className="flex gap-2">
-              <input
-                value={recordingsBaseDir}
-                onChange={(e) => setRecordingsBaseDir(e.target.value)}
-                placeholder="Default app data directory"
-                className="flex-1 px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
-              />
-              <button
-                onClick={async () => {
-                  const dir = await onPickDirectory()
-                  if (dir) setRecordingsBaseDir(dir)
-                }}
-                className="px-3 py-2 rounded text-xs border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800 hover:text-white"
-              >
-                Browse
-              </button>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Model</label>
+                <input
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value)}
+                  placeholder={PROVIDER_DEFAULT_MODEL[aiProvider]}
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                />
+              </div>
             </div>
-            <p className="text-xs text-amber-400">
-              Applies to new recordings only. Existing recording files are not moved.
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Anthropic API Key</label>
+                <input
+                  value={anthropicApiKey}
+                  onChange={(e) => setAnthropicApiKey(e.target.value)}
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                  type="password"
+                  placeholder="sk-ant-..."
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">OpenAI API Key</label>
+                <input
+                  value={openaiApiKey}
+                  onChange={(e) => setOpenaiApiKey(e.target.value)}
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                  type="password"
+                  placeholder="sk-..."
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">OpenRouter API Key</label>
+                <input
+                  value={openrouterApiKey}
+                  onChange={(e) => setOpenrouterApiKey(e.target.value)}
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                  type="password"
+                  placeholder="sk-or-..."
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Ollama Base URL</label>
+                <input
+                  value={ollamaBaseUrl}
+                  onChange={(e) => setOllamaBaseUrl(e.target.value)}
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                  placeholder="http://127.0.0.1:11434"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Ollama API Key (optional)</label>
+                <input
+                  value={ollamaApiKey}
+                  onChange={(e) => setOllamaApiKey(e.target.value)}
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                  type="password"
+                  placeholder="Only if your Ollama gateway requires auth"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">
+              Active provider: <span className="text-gray-300">{aiProvider}</span>. Changing provider resets the model
+              field to that provider&apos;s default.
             </p>
           </section>
 
-          <section className="space-y-2">
+          <section className="rounded-lg border border-gray-800 p-3 space-y-3">
             <h3 className="text-xs uppercase tracking-wider text-gray-400 font-semibold">Transcription</h3>
-            <label className="text-xs text-gray-500 block">Mode</label>
-            <select
-              value={transcriptionMode}
-              onChange={(e) => setTranscriptionMode(e.target.value as 'local' | 'deepgram')}
-              className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
-            >
-              <option value="local">Local</option>
-              <option value="deepgram">Deepgram</option>
-            </select>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Mode</label>
+                <select
+                  value={transcriptionMode}
+                  onChange={(e) => setTranscriptionMode(e.target.value as 'local' | 'deepgram')}
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                >
+                  <option value="local">Local</option>
+                  <option value="deepgram">Deepgram</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Deepgram Model</label>
+                <input
+                  value={deepgramModel}
+                  onChange={(e) => setDeepgramModel(e.target.value)}
+                  placeholder="nova-2"
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                />
+              </div>
+            </div>
             <label className="flex items-center gap-2 mt-2">
               <input
                 type="checkbox"
@@ -160,23 +272,29 @@ export default function SettingsModal({
               />
               <span className="text-xs text-gray-300">Enable diarization (experimental)</span>
             </label>
-            <label className="text-xs text-gray-500 block mt-2">Deepgram API Key</label>
-            <input
-              value={deepgramApiKey}
-              onChange={(e) => setDeepgramApiKey(e.target.value)}
-              placeholder="Required when mode is Deepgram"
-              className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
-              type="password"
-            />
-            <label className="text-xs text-gray-500 block mt-2">Hugging Face Token</label>
-            <input
-              value={huggingFaceToken}
-              onChange={(e) => setHuggingFaceToken(e.target.value)}
-              placeholder="Required for local pyannote diarization"
-              className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
-              type="password"
-              disabled={!diarizationEnabled}
-            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Deepgram API Key</label>
+                <input
+                  value={deepgramApiKey}
+                  onChange={(e) => setDeepgramApiKey(e.target.value)}
+                  placeholder="Required when mode is Deepgram"
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                  type="password"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Hugging Face Token</label>
+                <input
+                  value={huggingFaceToken}
+                  onChange={(e) => setHuggingFaceToken(e.target.value)}
+                  placeholder="Required for local pyannote diarization"
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                  type="password"
+                  disabled={!diarizationEnabled}
+                />
+              </div>
+            </div>
             <label className="text-xs text-gray-500 block mt-2">Local Diarization Model Path</label>
             <input
               value={settings.transcription.localDiarizationModelPath ?? ''}
@@ -211,42 +329,57 @@ export default function SettingsModal({
               </button>
             </div>
             {modelOpMessage && <p className="text-xs text-gray-400 mt-1">{modelOpMessage}</p>}
-            <label className="text-xs text-gray-500 block mt-2">Deepgram Model</label>
-            <input
-              value={deepgramModel}
-              onChange={(e) => setDeepgramModel(e.target.value)}
-              placeholder="nova-2"
-              className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
-            />
           </section>
 
-          <section className="space-y-2">
-            <h3 className="text-xs uppercase tracking-wider text-gray-400 font-semibold">Audio</h3>
-            <label className="text-xs text-gray-500 block">Default Microphone</label>
-            <select
-              value={defaultInputDeviceId}
-              onChange={(e) => setDefaultInputDeviceId(e.target.value)}
-              className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
-            >
-              <option value="">Use system/default available input</option>
-              {defaultMicOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </section>
-
-          <section className="space-y-2">
-            <h3 className="text-xs uppercase tracking-wider text-gray-400 font-semibold">AI</h3>
-            <label className="text-xs text-gray-500 block">Anthropic API Key</label>
-            <input
-              value={anthropicApiKey}
-              onChange={(e) => setAnthropicApiKey(e.target.value)}
-              placeholder="Optional until AI update is enabled"
-              className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
-              type="password"
-            />
+          <section className="rounded-lg border border-gray-800 p-3 space-y-3">
+            <h3 className="text-xs uppercase tracking-wider text-gray-400 font-semibold">Audio & Storage</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Default Microphone</label>
+                <select
+                  value={defaultInputDeviceId}
+                  onChange={(e) => setDefaultInputDeviceId(e.target.value)}
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                >
+                  <option value="">Use system/default available input</option>
+                  {defaultMicOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Recordings Base Directory</label>
+                <div className="flex gap-2">
+                  <input
+                    value={recordingsBaseDir}
+                    onChange={(e) => setRecordingsBaseDir(e.target.value)}
+                    placeholder="Default app data directory"
+                    className="flex-1 px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                  />
+                  <button
+                    onClick={async () => {
+                      const dir = await onPickDirectory()
+                      if (dir) setRecordingsBaseDir(dir)
+                    }}
+                    className="px-3 py-2 rounded text-xs border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800 hover:text-white"
+                  >
+                    Browse
+                  </button>
+                </div>
+              </div>
+            </div>
+            {pathsInfo && (
+              <div className="rounded border border-gray-800 bg-gray-900/50 p-2 text-xs text-gray-500 space-y-1">
+                <p className="truncate">DB: {pathsInfo.databasePath}</p>
+                <p className="truncate">Settings: {pathsInfo.settingsPath}</p>
+                <p className="truncate">Recordings: {pathsInfo.recordingsBaseDir}</p>
+              </div>
+            )}
+            <p className="text-xs text-amber-400">
+              Recordings directory changes apply to new recordings only. Existing files are not moved.
+            </p>
           </section>
         </div>
 

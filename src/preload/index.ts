@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld('api', {
     create: (title: string) => ipcRenderer.invoke('session:create', title),
     get: (id: number) => ipcRenderer.invoke('session:get', id),
     updateTitle: (id: number, title: string) => ipcRenderer.invoke('session:update-title', id, title),
+    updateNotes: (id: number, content: string) => ipcRenderer.invoke('session:update-notes', id, content),
+    updateAgenda: (id: number, content: string) =>
+      ipcRenderer.invoke('session:update-agenda', id, content),
     delete: (id: number) => ipcRenderer.invoke('session:delete', id)
   },
   transcription: {
@@ -62,5 +65,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on('menu:action', handler)
       return () => ipcRenderer.removeListener('menu:action', handler)
     }
+  },
+  ai: {
+    update: (sessionId: number) => ipcRenderer.invoke('ai:update', sessionId)
   }
 })

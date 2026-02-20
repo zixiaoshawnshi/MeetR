@@ -13,6 +13,7 @@ export interface SessionData extends Session {
   notes_content: string
   agenda_content: string
   latest_summary: string | null
+  latest_summary_generated_at: string | null
 }
 
 export function registerSessionHandlers(): void {
@@ -54,14 +55,15 @@ export function registerSessionHandlers(): void {
     ).get(id) as { content: string } | undefined
 
     const summary = db.prepare(
-      'SELECT content FROM summaries WHERE session_id = ? ORDER BY generated_at DESC LIMIT 1'
-    ).get(id) as { content: string } | undefined
+      'SELECT content, generated_at FROM summaries WHERE session_id = ? ORDER BY generated_at DESC LIMIT 1'
+    ).get(id) as { content: string; generated_at: string } | undefined
 
     return {
       ...session,
       notes_content: notes?.content ?? '',
       agenda_content: agenda?.content ?? '',
-      latest_summary: summary?.content ?? null
+      latest_summary: summary?.content ?? null,
+      latest_summary_generated_at: summary?.generated_at ?? null
     }
   })
 
@@ -69,6 +71,42 @@ export function registerSessionHandlers(): void {
     const db = getDb()
     const now = new Date().toISOString()
     db.prepare('UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?').run(title, now, id)
+  })
+
+  ipcMain.handle('session:update-notes', (_event, id: number, content: string): void => {
+    const db = getDb()
+    const now = new Date().toISOString()
+
+    const result = db
+      .prepare('UPDATE notes SET content = ?, updated_at = ? WHERE session_id = ?')
+      .run(content, now, id)
+    if (result.changes === 0) {
+      db.prepare('INSERT INTO notes (session_id, content, updated_at) VALUES (?, ?, ?)').run(
+        id,
+        content,
+        now
+      )
+    }
+
+    db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, id)
+  })
+
+  ipcMain.handle('session:update-agenda', (_event, id: number, content: string): void => {
+    const db = getDb()
+    const now = new Date().toISOString()
+
+    const result = db
+      .prepare('UPDATE agendas SET content = ?, updated_at = ? WHERE session_id = ?')
+      .run(content, now, id)
+    if (result.changes === 0) {
+      db.prepare('INSERT INTO agendas (session_id, content, updated_at) VALUES (?, ?, ?)').run(
+        id,
+        content,
+        now
+      )
+    }
+
+    db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, id)
   })
 
   ipcMain.handle('session:delete', (_event, id: number): void => {
