@@ -58,6 +58,7 @@ export interface AppSettings {
   }
   transcription: {
     mode: TranscriptionMode
+    language: string
     diarizationEnabled: boolean
     huggingFaceToken: string
     localDiarizationModelPath: string | null

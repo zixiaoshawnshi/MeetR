@@ -238,9 +238,10 @@ class TranscriptionEngine:
             else:
                 if self._model is None:
                     self._load_model()
+                whisper_language = self._resolve_whisper_language()
                 whisper_segments, _ = self._model.transcribe(
                     pcm,
-                    language=self.language,
+                    language=whisper_language,
                     vad_filter=False,
                     beam_size=5,
                 )
@@ -303,8 +304,10 @@ class TranscriptionEngine:
             "utterances": "true" if self._diarization_enabled else "false",
             "smart_format": "true",
             "punctuate": "true",
-            "language": self.language,
         }
+        deepgram_language = self._resolve_deepgram_language()
+        if deepgram_language is not None:
+            params["language"] = deepgram_language
 
         response = requests.post(
             "https://api.deepgram.com/v1/listen",
@@ -366,3 +369,15 @@ class TranscriptionEngine:
             "start_ms": chunk_start_ms,
             "end_ms": chunk_end_ms,
         }]
+
+    def _resolve_whisper_language(self) -> Optional[str]:
+        language = (self.language or "en").strip().lower()
+        if language in {"auto", "multi"}:
+            return None
+        return language
+
+    def _resolve_deepgram_language(self) -> Optional[str]:
+        language = (self.language or "en").strip().lower()
+        if language == "auto":
+            return None
+        return language

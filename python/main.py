@@ -122,6 +122,7 @@ async def handle_client(ws) -> None:
                 output_path = msg.get("output_path")
                 input_device_id = msg.get("input_device_id")
                 transcription_mode = msg.get("transcription_mode")
+                language = msg.get("language")
                 diarization_enabled = msg.get("diarization_enabled")
                 huggingface_token = msg.get("huggingface_token")
                 local_model_path = msg.get("local_diarization_model_path")
@@ -131,6 +132,9 @@ async def handle_client(ws) -> None:
                     input_device_id = None
                 if transcription_mode not in {"local", "deepgram"}:
                     transcription_mode = "local"
+                if not isinstance(language, str) or not language.strip():
+                    language = "en"
+                language = language.strip().lower()
                 if not isinstance(diarization_enabled, bool):
                     diarization_enabled = False
                 if not isinstance(huggingface_token, str):
@@ -168,6 +172,7 @@ async def handle_client(ws) -> None:
                     output_path=wav_path,
                     input_device=input_device_id,
                     transcription_mode=transcription_mode,
+                    language=language,
                     diarization_enabled=diarization_enabled,
                     deepgram_api_key=deepgram_api_key,
                     deepgram_model=deepgram_model,

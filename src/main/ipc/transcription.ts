@@ -68,6 +68,7 @@ export function registerTranscriptionHandlers(): void {
           outPath,
           inputDeviceId ?? null,
           settings.transcription.mode,
+          settings.transcription.language,
           settings.transcription.diarizationEnabled,
           settings.transcription.huggingFaceToken,
           settings.transcription.localDiarizationModelPath,

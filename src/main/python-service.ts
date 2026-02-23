@@ -48,8 +48,11 @@ function devVenvPythonPath(): string {
 function systemPythonCandidates(): Array<{ command: string; args: string[] }> {
   if (process.platform === 'win32') {
     return [
-      { command: 'python', args: [] },
-      { command: 'py', args: ['-3'] }
+      { command: 'py', args: ['-3.12'] },
+      { command: 'py', args: ['-3.11'] },
+      { command: 'py', args: ['-3.10'] },
+      { command: 'py', args: ['-3'] },
+      { command: 'python', args: [] }
     ]
   }
   return [
@@ -191,6 +194,7 @@ export async function startPythonService(): Promise<void> {
 
   const cwd = pythonWorkingDir()
   const candidates = pythonCandidates()
+  const QUICK_EXIT_MS = 4_000
 
   const trySpawn = (index: number): void => {
     if (index >= candidates.length) {
@@ -206,6 +210,7 @@ export async function startPythonService(): Promise<void> {
     })
 
     let started = false
+    const startedAt = Date.now()
 
     proc.once('spawn', () => {
       started = true
@@ -233,6 +238,10 @@ export async function startPythonService(): Promise<void> {
     proc.on('exit', (code, signal) => {
       if (pythonProc === proc) pythonProc = null
       console.log(`[python-service] Exited (code=${code ?? 'null'} signal=${signal ?? 'null'})`)
+      // If this candidate dies almost immediately, try the next one.
+      if ((code ?? 0) !== 0 && Date.now() - startedAt <= QUICK_EXIT_MS) {
+        trySpawn(index + 1)
+      }
     })
   }
 

@@ -15,6 +15,7 @@ export interface AppSettings {
   }
   transcription: {
     mode: TranscriptionMode
+    language: string
     diarizationEnabled: boolean
     huggingFaceToken: string
     localDiarizationModelPath: string | null
@@ -49,6 +50,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   },
   transcription: {
     mode: 'local',
+    language: 'en',
     diarizationEnabled: false,
     huggingFaceToken: '',
     localDiarizationModelPath: null,

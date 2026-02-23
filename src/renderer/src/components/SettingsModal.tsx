@@ -46,6 +46,7 @@ export default function SettingsModal({
   const [defaultInputDeviceId, setDefaultInputDeviceId] = useState<string>('')
 
   const [transcriptionMode, setTranscriptionMode] = useState<'local' | 'deepgram'>('local')
+  const [transcriptionLanguage, setTranscriptionLanguage] = useState('en')
   const [diarizationEnabled, setDiarizationEnabled] = useState(false)
   const [huggingFaceToken, setHuggingFaceToken] = useState('')
   const [deepgramApiKey, setDeepgramApiKey] = useState('')
@@ -68,6 +69,7 @@ export default function SettingsModal({
       settings.audio.defaultInputDeviceId === null ? '' : String(settings.audio.defaultInputDeviceId)
     )
     setTranscriptionMode(settings.transcription.mode)
+    setTranscriptionLanguage(settings.transcription.language || 'en')
     setDiarizationEnabled(settings.transcription.diarizationEnabled)
     setHuggingFaceToken(settings.transcription.huggingFaceToken)
     setDeepgramApiKey(settings.transcription.deepgramApiKey)
@@ -113,6 +115,7 @@ export default function SettingsModal({
       },
       transcription: {
         mode: transcriptionMode,
+        language: transcriptionLanguage.trim() || 'en',
         diarizationEnabled,
         huggingFaceToken: huggingFaceToken.trim(),
         deepgramApiKey: deepgramApiKey.trim(),
@@ -254,6 +257,30 @@ export default function SettingsModal({
                 </select>
               </div>
               <div>
+                <label className="text-xs text-gray-500 block mb-1">Language</label>
+                <select
+                  value={transcriptionLanguage}
+                  onChange={(e) => setTranscriptionLanguage(e.target.value)}
+                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
+                >
+                  <option value="en">English</option>
+                  <option value="es">Spanish</option>
+                  <option value="fr">French</option>
+                  <option value="de">German</option>
+                  <option value="it">Italian</option>
+                  <option value="pt">Portuguese</option>
+                  <option value="nl">Dutch</option>
+                  <option value="ja">Japanese</option>
+                  <option value="ko">Korean</option>
+                  <option value="zh">Chinese</option>
+                  <option value="hi">Hindi</option>
+                  <option value="auto">Auto-detect (single language)</option>
+                  <option value="multi">Multilingual</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
                 <label className="text-xs text-gray-500 block mb-1">Deepgram Model</label>
                 <input
                   value={deepgramModel}
@@ -261,6 +288,10 @@ export default function SettingsModal({
                   placeholder="nova-2"
                   className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200"
                 />
+              </div>
+              <div className="text-xs text-gray-500 self-end">
+                Local mode uses Faster-Whisper. Use <span className="text-gray-300">Auto-detect</span> or{' '}
+                <span className="text-gray-300">Multilingual</span> for multi-language audio.
               </div>
             </div>
             <label className="flex items-center gap-2 mt-2">
