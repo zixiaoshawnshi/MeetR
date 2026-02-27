@@ -10,3 +10,4 @@ python/.env
 python/models/
 python/__pycache__/
 .venv/
+resources/python-runtime/

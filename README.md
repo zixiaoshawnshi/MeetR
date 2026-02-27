@@ -114,9 +114,10 @@ npm run package
 ```
 
 Packaged builds include `python/` service files and auto-start the transcription service on app launch.
-To keep installer size smaller, `.venv` is not bundled. On first packaged launch, the app creates a runtime venv and installs `python/requirements-core.txt`.
+For Windows packaging, `npm run package` first prepares and bundles a core embedded Python runtime under `resources/python-runtime/` and installs `python/requirements-core.txt` into it.
+This removes the default runtime dependency on system Python for core transcription features.
 If local diarization is enabled, `python/requirements-diarization.txt` is installed on demand.
-Current requirement: Python must be installed and available on PATH on the target machine.
+If optional local diarization is enabled in packaged mode and no expandable runtime exists yet, system Python is still required once to create that optional runtime.
 
 ## Notes
 

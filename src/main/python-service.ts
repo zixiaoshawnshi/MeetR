@@ -4,6 +4,7 @@ import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
 
 let pythonProc: ChildProcessWithoutNullStreams | null = null
+let pythonCommandInUse: string | null = null
 let setupPromise: Promise<void> | null = null
 let pythonState: 'stopped' | 'starting' | 'ready' | 'error' = 'stopped'
 let lastError: string | null = null
@@ -15,6 +16,33 @@ function pythonEntryPath(): string {
     return join(process.resourcesPath, 'python', 'main.py')
   }
   return join(process.cwd(), 'python', 'main.py')
+}
+
+function bundledRuntimeDir(): string {
+  const platformArch = `${process.platform}-${process.arch}`
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'python-runtime', platformArch)
+  }
+  return join(process.cwd(), 'resources', 'python-runtime', platformArch)
+}
+
+function bundledRuntimePythonPath(): string {
+  if (process.platform === 'win32') {
+    return join(bundledRuntimeDir(), 'python.exe')
+  }
+  return join(bundledRuntimeDir(), 'bin', 'python')
+}
+
+function hasBundledRuntime(): boolean {
+  return existsSync(bundledRuntimePythonPath())
+}
+
+function sameExecutablePath(a: string | null, b: string): boolean {
+  if (!a) return false
+  if (process.platform === 'win32') {
+    return a.toLowerCase() === b.toLowerCase()
+  }
+  return a === b
 }
 
 function pythonWorkingDir(): string {
@@ -131,9 +159,11 @@ async function findSystemPythonCandidate(): Promise<{ command: string; args: str
 function pythonCandidates(): Array<{ command: string; args: string[] }> {
   if (app.isPackaged) {
     const runtimePy = runtimeVenvPythonPath()
-    if (existsSync(runtimePy)) {
-      return [{ command: runtimePy, args: [] }]
-    }
+    const bundledPy = bundledRuntimePythonPath()
+    const candidates: Array<{ command: string; args: string[] }> = []
+    if (existsSync(runtimePy)) candidates.push({ command: runtimePy, args: [] })
+    if (existsSync(bundledPy)) candidates.push({ command: bundledPy, args: [] })
+    if (candidates.length > 0) return candidates
   }
 
   const devPy = devVenvPythonPath()
@@ -186,6 +216,7 @@ async function runCommand(
 
 async function ensurePackagedPythonRuntime(): Promise<void> {
   if (!app.isPackaged) return
+  if (hasBundledRuntime()) return
   if (existsSync(runtimeVenvPythonPath())) return
   if (setupPromise) {
     await setupPromise
@@ -283,6 +314,7 @@ export async function startPythonService(): Promise<void> {
     proc.once('spawn', () => {
       started = true
       pythonProc = proc
+      pythonCommandInUse = candidate.command
       console.log(`[python-service] Started with "${candidate.command} ${candidate.args.join(' ')}".`)
       console.log(`[python-service] Script: ${entry}`)
       pushLog(`[python-service] Started with "${candidate.command} ${candidate.args.join(' ')}".`)
@@ -316,6 +348,7 @@ export async function startPythonService(): Promise<void> {
 
     proc.on('exit', (code, signal) => {
       if (pythonProc === proc) pythonProc = null
+      if (pythonProc === null) pythonCommandInUse = null
       console.log(`[python-service] Exited (code=${code ?? 'null'} signal=${signal ?? 'null'})`)
       pushLog(`[python-service] Exited (code=${code ?? 'null'} signal=${signal ?? 'null'})`)
       if ((code ?? 0) === 0) {
@@ -336,10 +369,38 @@ export async function startPythonService(): Promise<void> {
 export async function ensureOptionalDiarizationRuntime(): Promise<void> {
   if (!app.isPackaged) return
 
-  await ensurePackagedPythonRuntime()
-  if (existsSync(diarizationRuntimeMarkerPath())) {
-    return
+  if (!existsSync(runtimeVenvPythonPath())) {
+    const reqPath = requirementsPath()
+    if (!existsSync(reqPath)) {
+      throw new Error(`core requirements file not found: ${reqPath}`)
+    }
+
+    const systemPy = await findSystemPythonCandidate()
+    if (!systemPy) {
+      throw new Error(
+        'Local diarization add-on requires system Python to create an expandable runtime environment.'
+      )
+    }
+
+    mkdirSync(runtimeVenvDir(), { recursive: true })
+    await runCommand(
+      systemPy.command,
+      [...systemPy.args, '-m', 'venv', runtimeVenvDir()],
+      app.getPath('userData'),
+      'venv'
+    )
+
+    const runtimePy = runtimeVenvPythonPath()
+    await runCommand(runtimePy, ['-m', 'pip', 'install', '--upgrade', 'pip'], runtimeVenvDir(), 'pip-upgrade')
+    await runCommand(
+      runtimePy,
+      ['-m', 'pip', 'install', '-r', reqPath],
+      runtimeVenvDir(),
+      'pip-install-core'
+    )
   }
+
+  if (existsSync(diarizationRuntimeMarkerPath())) return
 
   const reqPath = diarizationRequirementsPath()
   if (!existsSync(reqPath)) {
@@ -348,14 +409,16 @@ export async function ensureOptionalDiarizationRuntime(): Promise<void> {
 
   const runtimePy = runtimeVenvPythonPath()
   console.log('[python-service] Installing optional diarization dependencies...')
-  await runCommand(
-    runtimePy,
-    ['-m', 'pip', 'install', '-r', reqPath],
-    runtimeVenvDir(),
-    'pip-install-diarization'
-  )
+  await runCommand(runtimePy, ['-m', 'pip', 'install', '-r', reqPath], runtimeVenvDir(), 'pip-install-diarization')
   writeFileSync(diarizationRuntimeMarkerPath(), new Date().toISOString(), 'utf8')
   console.log('[python-service] Optional diarization dependencies are ready.')
+
+  // If backend is already running from bundled/core runtime, restart so it uses
+  // the newly prepared diarization-capable runtime venv.
+  if (pythonProc && !sameExecutablePath(pythonCommandInUse, runtimePy)) {
+    await stopPythonService()
+    await startPythonService()
+  }
 }
 
 export async function stopPythonService(): Promise<void> {
@@ -379,5 +442,6 @@ export async function stopPythonService(): Promise<void> {
   })
 
   if (pythonProc === proc) pythonProc = null
+  if (pythonProc === null) pythonCommandInUse = null
   setBackendState('stopped')
 }

@@ -8,7 +8,8 @@
     "build": "electron-vite build",
     "preview": "cross-env ELECTRON_RUN_AS_NODE=0 electron-vite preview",
     "rebuild-native": "electron-rebuild -f -w better-sqlite3",
-    "package": "electron-vite build && electron-builder"
+    "prepare:python-runtime": "node scripts/prepare-python-runtime.mjs",
+    "package": "npm run prepare:python-runtime && electron-vite build && electron-builder"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
@@ -62,6 +63,13 @@
       {
         "from": "resources/ffmpeg",
         "to": "ffmpeg",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/python-runtime",
+        "to": "python-runtime",
         "filter": [
           "**/*"
         ]
