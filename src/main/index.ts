@@ -6,6 +6,7 @@ import { registerRecordingHandlers } from './ipc/recordings'
 import { registerSettingsHandlers } from './ipc/settings'
 import { registerAiHandlers } from './ipc/ai'
 import { startPythonService, stopPythonService } from './python-service'
+import { configureBundledFfmpegPath } from './ffmpeg-path'
 import {
   registerTranscriptionHandlers,
   stopActiveTranscriptionForShutdown
@@ -78,6 +79,7 @@ function setupApplicationMenu(): void {
 }
 
 app.whenReady().then(() => {
+  configureBundledFfmpegPath()
   startPythonService()
   initDatabase()
   registerSessionHandlers()

@@ -28,6 +28,18 @@ export interface InputDevicePayload {
   is_default: boolean
 }
 
+export interface ImportFileOptions {
+  filePath: string
+  transcriptionMode: 'local' | 'deepgram'
+  transcriptionLanguage: string
+  diarizationEnabled: boolean
+  huggingFaceToken: string
+  localDiarizationModelPath: string | null
+  deepgramApiKey: string
+  deepgramModel: string
+  startOffsetMs: number
+}
+
 /**
  * Connect to the Python service and send a `start` message.
  * Resolves when Python responds with `ready`.
@@ -216,6 +228,87 @@ export function listInputDevicesWs(): Promise<InputDevicePayload[]> {
             clearTimeout(timeout)
             ws.close()
             resolve((msg.devices as InputDevicePayload[] | undefined) ?? [])
+            return
+          }
+
+          if (msg.type === 'error') {
+            clearTimeout(timeout)
+            ws.close()
+            reject(new Error(String(msg.message ?? 'Unknown error from transcription service')))
+          }
+        })
+
+        ws.on('error', (err: Error) => {
+          clearTimeout(timeout)
+          reject(err)
+        })
+
+        ws.on('close', () => {
+          clearTimeout(timeout)
+        })
+      }),
+    START_RETRY_WINDOW_MS
+  )
+}
+
+export function transcribeFileWs(
+  options: ImportFileOptions,
+  onSegment: (payload: SegmentPayload) => void
+): Promise<void> {
+  if (isTranscribing()) {
+    return Promise.reject(new Error('Cannot import while live transcription is active.'))
+  }
+
+  return withRetry<void>(
+    () =>
+      new Promise((resolve, reject) => {
+        const ws = new WebSocket(PYTHON_WS_URL)
+
+        const timeout = setTimeout(() => {
+          ws.removeAllListeners()
+          ws.close()
+          reject(new Error('Timed out importing audio file'))
+        }, 120_000)
+
+        ws.on('open', () => {
+          ws.send(
+            JSON.stringify({
+              type: 'transcribe_file',
+              file_path: options.filePath,
+              transcription_mode: options.transcriptionMode,
+              language: options.transcriptionLanguage,
+              diarization_enabled: options.diarizationEnabled,
+              huggingface_token: options.huggingFaceToken,
+              local_diarization_model_path: options.localDiarizationModelPath,
+              deepgram_api_key: options.deepgramApiKey,
+              deepgram_model: options.deepgramModel,
+              start_offset_ms: options.startOffsetMs
+            })
+          )
+        })
+
+        ws.on('message', (raw: Buffer) => {
+          let msg: Record<string, unknown>
+          try {
+            msg = JSON.parse(raw.toString())
+          } catch {
+            return
+          }
+
+          if (msg.type === 'segment') {
+            onSegment({
+              speaker: msg.speaker as string,
+              text: msg.text as string,
+              start_ms: msg.start_ms as number,
+              end_ms: msg.end_ms as number
+            })
+            return
+          }
+
+          if (msg.type === 'transcribe_done') {
+            clearTimeout(timeout)
+            ws.close()
+            resolve()
             return
           }
 

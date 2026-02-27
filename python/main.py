@@ -6,6 +6,7 @@ Message protocol
 ----------------
 Client -> Server:
   {"type": "start", "session_id": "<id>", "output_path": "<path>"}
+  {"type": "transcribe_file", "file_path": "<path>"}
   {"type": "list_inputs"}
   {"type": "stop"}
 
@@ -13,6 +14,7 @@ Server -> Client:
   {"type": "ready"}
   {"type": "inputs", "devices": [{"id": 1, "name": "Mic", "is_default": true}]}
   {"type": "segment", "speaker": "Speaker 1", "text": "...", "start_ms": 0, "end_ms": 1500}
+  {"type": "transcribe_done", "imported_count": 8}
   {"type": "error", "message": "..."}
   {"type": "stopped", "audio_path": "<path or null>"}
 """
@@ -112,6 +114,90 @@ async def handle_client(ws) -> None:
                         "type": "error",
                         "message": f"Failed to list input devices: {exc}",
                     }))
+                continue
+
+            if msg_type == "transcribe_file":
+                if engine is not None:
+                    await ws.send(json.dumps({
+                        "type": "error",
+                        "message": "Cannot import file while live transcription is running.",
+                    }))
+                    continue
+
+                file_path = msg.get("file_path")
+                transcription_mode = msg.get("transcription_mode")
+                language = msg.get("language")
+                diarization_enabled = msg.get("diarization_enabled")
+                start_offset_ms = msg.get("start_offset_ms")
+                deepgram_api_key = msg.get("deepgram_api_key")
+                deepgram_model = msg.get("deepgram_model")
+
+                if not isinstance(file_path, str) or not file_path.strip():
+                    await ws.send(json.dumps({"type": "error", "message": "file_path is required"}))
+                    continue
+                file_path = file_path.strip()
+                suffix = Path(file_path).suffix.lower()
+                if suffix not in {".wav", ".flac"}:
+                    await ws.send(json.dumps({
+                        "type": "error",
+                        "message": "Only WAV and FLAC files are supported for import right now.",
+                    }))
+                    continue
+                if not Path(file_path).exists():
+                    await ws.send(json.dumps({
+                        "type": "error",
+                        "message": "Selected audio file does not exist.",
+                    }))
+                    continue
+                if transcription_mode not in {"local", "deepgram"}:
+                    transcription_mode = "local"
+                if not isinstance(language, str) or not language.strip():
+                    language = "en"
+                language = language.strip().lower()
+                if not isinstance(diarization_enabled, bool):
+                    diarization_enabled = False
+                if not isinstance(start_offset_ms, int):
+                    start_offset_ms = 0
+                if not isinstance(deepgram_api_key, str):
+                    deepgram_api_key = ""
+                if not isinstance(deepgram_model, str) or not deepgram_model.strip():
+                    deepgram_model = "nova-2"
+                if transcription_mode == "deepgram" and not deepgram_api_key.strip():
+                    await ws.send(json.dumps({
+                        "type": "error",
+                        "message": "Deepgram mode selected but API key is missing in Settings.",
+                    }))
+                    continue
+
+                log.info("Import transcription from file=%s", file_path)
+                import_engine = TranscriptionEngine(
+                    on_segment=send_segment,
+                    model_size="base",
+                    speaker_tracker=None,
+                    output_path=None,
+                    input_device=None,
+                    transcription_mode=transcription_mode,
+                    language=language,
+                    diarization_enabled=diarization_enabled,
+                    deepgram_api_key=deepgram_api_key,
+                    deepgram_model=deepgram_model,
+                )
+                import_engine.attach_loop(asyncio.get_event_loop())
+
+                try:
+                    imported_count = await asyncio.to_thread(
+                        import_engine.transcribe_audio_file,
+                        file_path,
+                        max(0, start_offset_ms),
+                    )
+                except Exception as exc:
+                    await ws.send(json.dumps({"type": "error", "message": str(exc)}))
+                    continue
+
+                await ws.send(json.dumps({
+                    "type": "transcribe_done",
+                    "imported_count": imported_count,
+                }))
                 continue
 
             if msg_type == "start":

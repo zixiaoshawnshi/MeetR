@@ -58,6 +58,13 @@
           "!models/**",
           "!**/.pytest_cache/**"
         ]
+      },
+      {
+        "from": "resources/ffmpeg",
+        "to": "ffmpeg",
+        "filter": [
+          "**/*"
+        ]
       }
     ]
   }

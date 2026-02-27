@@ -28,6 +28,7 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS transcript_segments (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id    INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      recording_file_path TEXT,
       speaker_id    TEXT NOT NULL,
       speaker_name  TEXT,
       text          TEXT NOT NULL,
@@ -68,5 +69,14 @@ export function initDatabase(): void {
       created_at   TEXT NOT NULL
     );
   `)
+
+  // Backward-compatible migration for existing DBs created before
+  // recording-scoped transcript imports were introduced.
+  const segmentCols = db
+    .prepare('PRAGMA table_info(transcript_segments)')
+    .all() as Array<{ name: string }>
+  if (!segmentCols.some((c) => c.name === 'recording_file_path')) {
+    db.exec('ALTER TABLE transcript_segments ADD COLUMN recording_file_path TEXT')
+  }
 }
 

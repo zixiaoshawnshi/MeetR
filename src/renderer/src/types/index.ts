@@ -120,6 +120,12 @@ export interface WindowAPI {
     inputDevices: () => Promise<TranscriptionInputDevice[]>
     segments: (sessionId: number) => Promise<TranscriptSegment[]>
     renameSpeaker: (sessionId: number, speakerId: string, newName: string) => Promise<void>
+    transcribeRecording: (sessionId: number, filePath: string) => Promise<{
+      success: boolean
+      canceled?: boolean
+      error?: string
+      importedCount?: number
+    }>
     onSegment: (cb: (segment: TranscriptSegment) => void) => () => void
     onStateChange: (cb: (state: TranscriptionState) => void) => () => void
   }

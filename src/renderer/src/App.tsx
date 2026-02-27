@@ -17,6 +17,7 @@ import SessionList from './components/SessionList'
 import ConsentDialog from './components/ConsentDialog'
 import RecordingsPanel from './components/RecordingsPanel'
 import SettingsModal from './components/SettingsModal'
+import TranscribeRecordingDialog from './components/TranscribeRecordingDialog'
 
 const AUTOSAVE_DEBOUNCE_MS = 500
 
@@ -40,6 +41,9 @@ export default function App() {
   const [agendaContent, setAgendaContent] = useState('')
   const [aiSummarizing, setAiSummarizing] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
+  const [importingTranscript, setImportingTranscript] = useState(false)
+  const [importTranscriptError, setImportTranscriptError] = useState<string | null>(null)
+  const [showTranscribeDialog, setShowTranscribeDialog] = useState(false)
 
   const consentGivenRef = useRef(false)
 
@@ -117,6 +121,8 @@ export default function App() {
         setRecording(false)
         setStoppingRecording(false)
         setRecordError(null)
+        setImportTranscriptError(null)
+        setShowTranscribeDialog(false)
         setAiError(null)
         setAiSummarizing(false)
         consentGivenRef.current = false
@@ -270,6 +276,39 @@ export default function App() {
     }
   }, [session, notesContent, agendaContent])
 
+  const handleImportTranscript = useCallback(async () => {
+    if (!session || recording || stoppingRecording || importingTranscript) return
+    setImportTranscriptError(null)
+    await loadRecordings(session.id)
+    setShowTranscribeDialog(true)
+  }, [session, recording, stoppingRecording, importingTranscript, loadRecordings])
+
+  const handleTranscribeRecording = useCallback(
+    async (filePath: string) => {
+      if (!session || recording || stoppingRecording || importingTranscript) return
+
+      setImportTranscriptError(null)
+      setImportingTranscript(true)
+      try {
+        const result = await window.api.transcription.transcribeRecording(session.id, filePath)
+        if (!result.success) {
+          setImportTranscriptError(result.error ?? 'Failed to transcribe selected recording.')
+          return
+        }
+        const refreshed = await window.api.transcription.segments(session.id)
+        setSegments(refreshed)
+        setShowTranscribeDialog(false)
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to transcribe selected recording.'
+        setImportTranscriptError(message)
+      } finally {
+        setImportingTranscript(false)
+      }
+    },
+    [session, recording, stoppingRecording, importingTranscript]
+  )
+
   useEffect(() => {
     if (!session) return
     setNotesContent(session.notes_content)
@@ -361,6 +400,10 @@ export default function App() {
                 segments={segments}
                 sessionId={session?.id}
                 onRenameSpeaker={handleRenameSpeaker}
+                onImportRecording={handleImportTranscript}
+                importDisabled={recording || stoppingRecording}
+                importBusy={importingTranscript}
+                importError={importTranscriptError}
               />
               <NotesPanel content={notesContent} onChange={setNotesContent} />
             </div>
@@ -384,6 +427,24 @@ export default function App() {
             }}
             onShowInFolder={(filePath) => {
               void window.api.recording.showInFolder(filePath)
+            }}
+          />
+          <TranscribeRecordingDialog
+            open={showTranscribeDialog}
+            recordings={recordings}
+            loading={recordingsLoading}
+            busy={importingTranscript}
+            error={importTranscriptError}
+            onClose={() => {
+              if (importingTranscript) return
+              setShowTranscribeDialog(false)
+            }}
+            onRefresh={() => {
+              if (!session) return
+              void loadRecordings(session.id)
+            }}
+            onTranscribe={(filePath) => {
+              void handleTranscribeRecording(filePath)
             }}
           />
         </>

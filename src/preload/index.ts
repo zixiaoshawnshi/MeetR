@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('transcription:segments', sessionId),
     renameSpeaker: (sessionId: number, speakerId: string, newName: string) =>
       ipcRenderer.invoke('transcription:rename-speaker', sessionId, speakerId, newName),
+    transcribeRecording: (sessionId: number, filePath: string) =>
+      ipcRenderer.invoke('transcription:transcribe-recording', sessionId, filePath),
     // Event subscriptions — each returns a cleanup () => void
     onSegment: (cb: (segment: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, segment: unknown): void => cb(segment)

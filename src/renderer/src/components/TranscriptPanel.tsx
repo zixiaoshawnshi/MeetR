@@ -5,6 +5,10 @@ interface TranscriptPanelProps {
   segments?: TranscriptSegment[]
   sessionId?: number
   onRenameSpeaker?: (speakerId: string, newName: string) => void
+  onImportRecording?: () => void
+  importDisabled?: boolean
+  importBusy?: boolean
+  importError?: string | null
 }
 
 function formatTime(ms: number): string {
@@ -30,7 +34,11 @@ function speakerColor(speakerId: string): string {
 
 export default function TranscriptPanel({
   segments = [],
-  onRenameSpeaker
+  onRenameSpeaker,
+  onImportRecording,
+  importDisabled = false,
+  importBusy = false,
+  importError = null
 }: TranscriptPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [renamingSpeakerId, setRenamingSpeakerId] = useState<string | null>(null)
@@ -76,11 +84,27 @@ export default function TranscriptPanel({
           Transcription
         </span>
         <div className="flex items-center gap-3">
+          {onImportRecording && (
+            <button
+              onClick={onImportRecording}
+              disabled={importDisabled || importBusy}
+              className="px-2 py-1 rounded text-xs border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Import an existing WAV recording and transcribe it"
+            >
+              {importBusy ? 'Importing...' : 'Transcribe Recording'}
+            </button>
+          )}
           {segments.length > 0 && (
             <span className="text-xs text-gray-600">{segments.length} segments</span>
           )}
         </div>
       </div>
+
+      {importError && (
+        <div className="px-3 py-1.5 border-b border-red-900/60 bg-red-950/30">
+          <p className="text-xs text-red-300">{importError}</p>
+        </div>
+      )}
 
       {/* Speaker rename chips (shown when there are speakers) */}
       {uniqueSpeakers.length > 0 && (

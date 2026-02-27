@@ -1,14 +1,19 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { join } from 'path'
+import { mkdtemp, rm, stat, unlink } from 'fs/promises'
 import { statSync } from 'fs'
+import { tmpdir } from 'os'
 import { getDb } from '../database'
 import { getSettings, recordingsBaseDir } from '../settings'
+import { transcodeAudioToWav16kMono, transcodeWavToFlac } from '../audio-transcode'
 import {
   startTranscriptionWs,
   stopTranscriptionWs,
   isTranscribing,
   listInputDevicesWs,
-  InputDevicePayload
+  transcribeFileWs,
+  InputDevicePayload,
+  SegmentPayload
 } from '../transcription-client'
 import type { TranscriptSegment } from '../../renderer/src/types'
 
@@ -16,6 +21,7 @@ let activeRecording:
   | {
       sessionId: number
       startedAt: string
+      filePath: string
     }
   | null = null
 
@@ -35,13 +41,64 @@ function recordingOutputPath(sessionId: number, startedAtIso: string): string {
 
 function estimateWavDurationMs(audioPath: string): number | null {
   try {
-    const stat = statSync(audioPath)
-    const dataBytes = Math.max(0, stat.size - 44)
+    const wavStat = statSync(audioPath)
+    const dataBytes = Math.max(0, wavStat.size - 44)
     // 16kHz * 16-bit mono PCM => 32,000 bytes/second
     return Math.round((dataBytes / 32_000) * 1000)
   } catch {
     return null
   }
+}
+
+async function ensureDeepgramFlacRecordingPath(sessionId: number, filePath: string): Promise<string> {
+  const lowerPath = filePath.toLowerCase()
+  if (lowerPath.endsWith('.flac')) {
+    return filePath
+  }
+  if (!lowerPath.endsWith('.wav')) {
+    throw new Error('Deepgram bulk transcription supports WAV or FLAC recordings only.')
+  }
+
+  const flacPath = filePath.replace(/\.wav$/i, '.flac')
+  try {
+    const existing = await stat(flacPath)
+    if (existing.size <= 0) {
+      throw new Error('Existing FLAC file is empty.')
+    }
+  } catch {
+    await transcodeWavToFlac(filePath, flacPath)
+  }
+
+  const outStat = await stat(flacPath)
+  if (outStat.size <= 0) {
+    throw new Error('FLAC conversion failed: output file is empty.')
+  }
+
+  const db = getDb()
+  const now = new Date().toISOString()
+  const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE session_recordings
+       SET file_path = ?
+       WHERE session_id = ? AND file_path = ?`
+    ).run(flacPath, sessionId, filePath)
+
+    db.prepare(
+      `UPDATE sessions
+       SET audio_file_path = ?, updated_at = ?
+       WHERE id = ? AND audio_file_path = ?`
+    ).run(flacPath, now, sessionId, filePath)
+
+    db.prepare(
+      `UPDATE transcript_segments
+       SET recording_file_path = ?
+       WHERE session_id = ? AND recording_file_path = ?`
+    ).run(flacPath, sessionId, filePath)
+  })
+  tx()
+
+  await unlink(filePath).catch(() => undefined)
+  return flacPath
 }
 
 export function registerTranscriptionHandlers(): void {
@@ -78,6 +135,7 @@ export function registerTranscriptionHandlers(): void {
           (payload) => {
             persistAndPushSegment(
               sessionId,
+              activeRecording?.filePath ?? null,
               payload.speaker,
               payload.text,
               payload.start_ms,
@@ -88,7 +146,8 @@ export function registerTranscriptionHandlers(): void {
         )
         activeRecording = {
           sessionId,
-          startedAt
+          startedAt,
+          filePath: outPath
         }
         return { success: true }
       } catch (err) {
@@ -117,6 +176,92 @@ export function registerTranscriptionHandlers(): void {
   ipcMain.handle('transcription:input-devices', async (): Promise<InputDevicePayload[]> => {
     return await listInputDevicesWs()
   })
+
+  ipcMain.handle(
+    'transcription:transcribe-recording',
+    async (
+      _event,
+      sessionId: number,
+      filePath: string
+    ): Promise<{ success: boolean; canceled?: boolean; error?: string; importedCount?: number }> => {
+      if (isTranscribing()) {
+        return { success: false, error: 'Stop live recording before importing audio.' }
+      }
+
+      if (!filePath || !filePath.trim()) {
+        return { success: false, error: 'Recording path is required.' }
+      }
+      const normalizedPath = filePath.trim()
+      const lowerPath = normalizedPath.toLowerCase()
+      if (!lowerPath.endsWith('.wav') && !lowerPath.endsWith('.flac')) {
+        return { success: false, error: 'Only WAV and FLAC recordings are supported right now.' }
+      }
+
+      let tempDir: string | null = null
+      let filePathForTranscription = normalizedPath
+      try {
+        const settings = getSettings()
+        const imported: SegmentPayload[] = []
+        if (settings.transcription.mode === 'deepgram') {
+          filePathForTranscription = await ensureDeepgramFlacRecordingPath(sessionId, normalizedPath)
+        } else if (lowerPath.endsWith('.flac')) {
+          tempDir = await mkdtemp(join(tmpdir(), 'meetr-transcribe-'))
+          filePathForTranscription = join(tempDir, 'input.wav')
+          await transcodeAudioToWav16kMono(normalizedPath, filePathForTranscription)
+        }
+
+        await transcribeFileWs(
+          {
+            filePath: filePathForTranscription,
+            transcriptionMode: settings.transcription.mode,
+            transcriptionLanguage: settings.transcription.language,
+            diarizationEnabled: settings.transcription.diarizationEnabled,
+            huggingFaceToken: settings.transcription.huggingFaceToken,
+            localDiarizationModelPath: settings.transcription.localDiarizationModelPath,
+            deepgramApiKey: settings.transcription.deepgramApiKey,
+            deepgramModel: settings.transcription.deepgramModel,
+            startOffsetMs: 0
+          },
+          (payload) => imported.push(payload)
+        )
+
+        const db = getDb()
+        const now = new Date().toISOString()
+        const recordingPathKey =
+          settings.transcription.mode === 'deepgram' ? filePathForTranscription : normalizedPath
+        const replaceSegments = db.transaction(() => {
+          db.prepare(
+            'DELETE FROM transcript_segments WHERE session_id = ? AND recording_file_path = ?'
+          ).run(sessionId, recordingPathKey)
+          const insert = db.prepare(
+            `INSERT INTO transcript_segments
+              (session_id, recording_file_path, speaker_id, text, start_ms, end_ms, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          )
+          for (const seg of imported) {
+            insert.run(
+              sessionId,
+              recordingPathKey,
+              seg.speaker,
+              seg.text,
+              seg.start_ms,
+              seg.end_ms,
+              now
+            )
+          }
+        })
+        replaceSegments()
+
+        return { success: true, importedCount: imported.length }
+      } catch (err) {
+        return { success: false, error: (err as Error).message }
+      } finally {
+        if (tempDir) {
+          await rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
+        }
+      }
+    }
+  )
 
   /**
    * Save an incoming segment to the DB and push it to the renderer.
@@ -155,15 +300,40 @@ export function registerTranscriptionHandlers(): void {
 }
 
 async function stopAndPersistRecording(sessionIdHint?: number): Promise<string | null> {
-  const audioPath = await stopTranscriptionWs()
+  const originalWavPath = await stopTranscriptionWs()
   const now = new Date().toISOString()
+  let persistedAudioPath: string | null = originalWavPath
 
   const sessionId = sessionIdHint ?? activeRecording?.sessionId ?? null
-  if (audioPath && sessionId) {
+  if (originalWavPath && sessionId) {
+    const durationMs = estimateWavDurationMs(originalWavPath)
+    let storedPath = originalWavPath
+    if (originalWavPath.toLowerCase().endsWith('.wav')) {
+      const flacPath = originalWavPath.replace(/\.wav$/i, '.flac')
+      try {
+        await transcodeWavToFlac(originalWavPath, flacPath)
+        const outStat = await stat(flacPath)
+        if (outStat.size > 0) {
+          storedPath = flacPath
+          await unlink(originalWavPath).catch(() => undefined)
+        }
+      } catch {
+        // Keep WAV if compression fails.
+      }
+    }
+
     const db = getDb()
     db.prepare(
       'UPDATE sessions SET audio_file_path = ?, updated_at = ? WHERE id = ?'
-    ).run(audioPath, now, sessionId)
+    ).run(storedPath, now, sessionId)
+    if (storedPath !== originalWavPath) {
+      db.prepare(
+        `UPDATE transcript_segments
+         SET recording_file_path = ?
+         WHERE session_id = ? AND recording_file_path = ?`
+      ).run(storedPath, sessionId, originalWavPath)
+    }
+    persistedAudioPath = storedPath
 
     const startedAt =
       activeRecording && activeRecording.sessionId === sessionId
@@ -176,16 +346,16 @@ async function stopAndPersistRecording(sessionIdHint?: number): Promise<string |
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(
       sessionId,
-      audioPath,
+      storedPath,
       startedAt,
       now,
-      estimateWavDurationMs(audioPath),
+      durationMs,
       now
     )
   }
 
   activeRecording = null
-  return audioPath
+  return persistedAudioPath
 }
 
 export async function stopActiveTranscriptionForShutdown(): Promise<void> {
@@ -199,6 +369,7 @@ export async function stopActiveTranscriptionForShutdown(): Promise<void> {
  */
 function persistAndPushSegment(
   sessionId: number,
+  recordingFilePath: string | null,
   speaker: string,
   text: string,
   start_ms: number,
@@ -210,10 +381,10 @@ function persistAndPushSegment(
   const result = db
     .prepare(
       `INSERT INTO transcript_segments
-         (session_id, speaker_id, text, start_ms, end_ms, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
+         (session_id, recording_file_path, speaker_id, text, start_ms, end_ms, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(sessionId, speaker, text, start_ms, end_ms, now)
+    .run(sessionId, recordingFilePath, speaker, text, start_ms, end_ms, now)
 
   const segment: TranscriptSegment = {
     id: result.lastInsertRowid as number,

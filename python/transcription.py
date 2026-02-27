@@ -35,6 +35,7 @@ VOICED_TRIGGER_MS = 200
 SILENCE_CLOSE_MS = 800
 PRE_SPEECH_PAD_MS = 300
 MIN_SPEECH_MS = 250
+DEEPGRAM_REQUEST_TIMEOUT_SEC = 120
 
 
 class TranscriptionEngine:
@@ -85,6 +86,9 @@ class TranscriptionEngine:
         self._capture_thread.start()
         log.info("TranscriptionEngine started (mode=%s)", self._transcription_mode)
 
+    def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._loop = loop
+
     def stop(self, wait: bool = True) -> Optional[str]:
         self._stop_event.set()
         log.info("TranscriptionEngine stop requested")
@@ -96,6 +100,43 @@ class TranscriptionEngine:
         if self._transcribe_thread is not None:
             self._transcribe_thread.join(timeout=10.0)
         return self.saved_audio_path
+
+    def transcribe_audio_file(self, file_path: str, start_offset_ms: int = 0) -> int:
+        if self._loop is None:
+            raise RuntimeError("TranscriptionEngine loop is not set")
+
+        if self._transcription_mode == "deepgram":
+            segments = self._transcribe_file_with_deepgram(file_path, max(0, int(start_offset_ms)))
+        else:
+            pcm = self._load_wav_pcm_16k_mono(file_path)
+            if pcm.size == 0:
+                return 0
+
+            segments: list[dict] = []
+            if self._model is None:
+                self._load_model()
+            whisper_language = self._resolve_whisper_language()
+            whisper_segments, _ = self._model.transcribe(
+                pcm,
+                language=whisper_language,
+                vad_filter=False,
+                beam_size=5,
+            )
+            for s in whisper_segments:
+                text = s.text.strip()
+                if not text:
+                    continue
+                start_ms = max(0, int(start_offset_ms) + int(float(s.start) * 1000))
+                end_ms = max(start_ms + 1, int(start_offset_ms) + int(float(s.end) * 1000))
+                segments.append({
+                    "speaker": "Speaker 1",
+                    "text": text,
+                    "start_ms": start_ms,
+                    "end_ms": end_ms,
+                })
+
+        self._emit_segments(segments)
+        return len(segments)
 
     def _capture_loop(self) -> None:
         wav: Optional[wave.Wave_write] = None
@@ -260,26 +301,63 @@ class TranscriptionEngine:
                     "end_ms": end_ms,
                 }]
 
-            if self._loop and self._loop.is_running():
-                for segment in segments:
-                    log.info(
-                        "Segment [%d-%d] %s: %s",
-                        segment["start_ms"],
-                        segment["end_ms"],
-                        segment["speaker"],
-                        segment["text"],
-                    )
-                    asyncio.run_coroutine_threadsafe(
-                        self.on_segment(
-                            str(segment["speaker"]),
-                            str(segment["text"]),
-                            int(segment["start_ms"]),
-                            int(segment["end_ms"]),
-                        ),
-                        self._loop,
-                    )
+            self._emit_segments(segments)
         except Exception:
             log.exception("Transcription segment error")
+
+    def _emit_segments(self, segments: list[dict]) -> None:
+        if not (self._loop and self._loop.is_running()):
+            return
+        for segment in segments:
+            log.info(
+                "Segment [%d-%d] %s: %s",
+                segment["start_ms"],
+                segment["end_ms"],
+                segment["speaker"],
+                segment["text"],
+            )
+            asyncio.run_coroutine_threadsafe(
+                self.on_segment(
+                    str(segment["speaker"]),
+                    str(segment["text"]),
+                    int(segment["start_ms"]),
+                    int(segment["end_ms"]),
+                ),
+                self._loop,
+            )
+
+    def _load_wav_pcm_16k_mono(self, file_path: str) -> np.ndarray:
+        if Path(file_path).suffix.lower() != ".wav":
+            raise ValueError("Local bulk transcription only supports WAV input.")
+        with wave.open(file_path, "rb") as wav_file:
+            channels = int(wav_file.getnchannels())
+            sample_width = int(wav_file.getsampwidth())
+            sample_rate = int(wav_file.getframerate())
+            frame_count = int(wav_file.getnframes())
+            raw = wav_file.readframes(frame_count)
+
+        if sample_width != 2:
+            raise ValueError("Only 16-bit PCM WAV files are supported.")
+
+        pcm_i16 = np.frombuffer(raw, dtype=np.int16)
+        if channels > 1:
+            pcm_i16 = pcm_i16.reshape(-1, channels).mean(axis=1).astype(np.int16)
+
+        pcm = pcm_i16.astype(np.float32) / 32767.0
+        if sample_rate != SAMPLE_RATE:
+            pcm = self._resample_linear(pcm, sample_rate, SAMPLE_RATE)
+        return pcm
+
+    def _resample_linear(self, pcm: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
+        if src_rate <= 0 or dst_rate <= 0 or pcm.size == 0:
+            return pcm
+        if src_rate == dst_rate:
+            return pcm
+        duration_sec = pcm.size / float(src_rate)
+        dst_len = max(1, int(round(duration_sec * dst_rate)))
+        src_x = np.linspace(0.0, duration_sec, num=pcm.size, endpoint=False)
+        dst_x = np.linspace(0.0, duration_sec, num=dst_len, endpoint=False)
+        return np.interp(dst_x, src_x, pcm).astype(np.float32)
 
     def _transcribe_with_deepgram(
         self,
@@ -301,7 +379,7 @@ class TranscriptionEngine:
         params = {
             "model": self._deepgram_model,
             "diarize": "true" if self._diarization_enabled else "false",
-            "utterances": "true" if self._diarization_enabled else "false",
+            "utterances": "true",
             "smart_format": "true",
             "punctuate": "true",
         }
@@ -317,14 +395,82 @@ class TranscriptionEngine:
                 "Content-Type": "audio/wav",
             },
             data=wav_buffer.getvalue(),
-            timeout=15,
+            timeout=DEEPGRAM_REQUEST_TIMEOUT_SEC,
         )
         response.raise_for_status()
 
         body = response.json()
+        return self._deepgram_response_to_segments(body, chunk_start_ms, chunk_end_ms)
+
+    def _transcribe_file_with_deepgram(self, file_path: str, start_offset_ms: int) -> list[dict]:
+        if not self._deepgram_api_key:
+            raise ValueError("Deepgram mode selected but API key is missing")
+
+        suffix = Path(file_path).suffix.lower()
+        if suffix not in {".wav", ".flac"}:
+            raise ValueError("Deepgram bulk transcription supports WAV and FLAC files only.")
+
+        content_type = "audio/flac" if suffix == ".flac" else "audio/wav"
+        audio_bytes = Path(file_path).read_bytes()
+        if not audio_bytes:
+            return []
+
+        params = {
+            "model": self._deepgram_model,
+            "diarize": "true" if self._diarization_enabled else "false",
+            "utterances": "true",
+            "smart_format": "true",
+            "punctuate": "true",
+        }
+        deepgram_language = self._resolve_deepgram_language()
+        if deepgram_language is not None:
+            params["language"] = deepgram_language
+
+        response = requests.post(
+            "https://api.deepgram.com/v1/listen",
+            params=params,
+            headers={
+                "Authorization": f"Token {self._deepgram_api_key}",
+                "Content-Type": content_type,
+            },
+            data=audio_bytes,
+            timeout=DEEPGRAM_REQUEST_TIMEOUT_SEC,
+        )
+        response.raise_for_status()
+        body = response.json()
+
+        duration_ms = self._extract_deepgram_duration_ms(body)
+        end_ms = start_offset_ms + duration_ms if duration_ms > 0 else start_offset_ms + 1
+        return self._deepgram_response_to_segments(body, start_offset_ms, end_ms)
+
+    def _extract_deepgram_duration_ms(self, body: dict) -> int:
+        metadata = body.get("metadata", {})
+        duration = metadata.get("duration")
+        if isinstance(duration, (int, float)) and float(duration) > 0:
+            return int(float(duration) * 1000)
+
         channel = body.get("results", {}).get("channels", [{}])[0]
         alt = channel.get("alternatives", [{}])[0]
-        utterances = body.get("results", {}).get("utterances", []) if self._diarization_enabled else []
+        words = alt.get("words", [])
+        latest_end = 0.0
+        if isinstance(words, list):
+            for word in words:
+                w_end = word.get("end")
+                if isinstance(w_end, (int, float)):
+                    latest_end = max(latest_end, float(w_end))
+        if latest_end > 0:
+            return int(latest_end * 1000)
+        return 0
+
+    def _deepgram_response_to_segments(
+        self,
+        body: dict,
+        chunk_start_ms: int,
+        chunk_end_ms: int,
+    ) -> list[dict]:
+        channel = body.get("results", {}).get("channels", [{}])[0]
+        alt = channel.get("alternatives", [{}])[0]
+        utterances = body.get("results", {}).get("utterances", [])
         out: list[dict] = []
         if isinstance(utterances, list) and len(utterances) > 0:
             for utt in utterances:
