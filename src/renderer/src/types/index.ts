@@ -29,6 +29,18 @@ export interface TranscriptionState {
   error?: string
 }
 
+export interface PythonBackendStatus {
+  state: 'stopped' | 'starting' | 'ready' | 'error'
+  lastError: string | null
+  recentLogs: string[]
+}
+
+export interface TranscriptionBackendStatus {
+  python: PythonBackendStatus
+  serviceReachable: boolean
+  serviceError: string | null
+}
+
 export interface TranscriptionInputDevice {
   id: number
   name: string
@@ -117,6 +129,7 @@ export interface WindowAPI {
     start: (sessionId: number, inputDeviceId?: number | null) => Promise<{ success: boolean; error?: string }>
     stop: (sessionId: number) => Promise<{ audioPath: string | null }>
     status: () => Promise<boolean>
+    backendStatus: () => Promise<TranscriptionBackendStatus>
     inputDevices: () => Promise<TranscriptionInputDevice[]>
     segments: (sessionId: number) => Promise<TranscriptSegment[]>
     renameSpeaker: (sessionId: number, speakerId: string, newName: string) => Promise<void>
@@ -128,6 +141,7 @@ export interface WindowAPI {
     }>
     onSegment: (cb: (segment: TranscriptSegment) => void) => () => void
     onStateChange: (cb: (state: TranscriptionState) => void) => () => void
+    onBackendStatus: (cb: (status: PythonBackendStatus) => void) => () => void
   }
   recording: {
     list: (sessionId: number) => Promise<SessionRecording[]>

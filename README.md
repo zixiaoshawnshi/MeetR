@@ -71,7 +71,9 @@ npm install
 python -m venv .venv
 # Windows PowerShell
 .\.venv\Scripts\Activate.ps1
-pip install -r python/requirements.txt
+pip install -r python/requirements-core.txt
+# Optional (local diarization only)
+pip install -r python/requirements-diarization.txt
 ```
 
 3. (Optional for local diarization) Create `python/.env` and add:
@@ -112,7 +114,8 @@ npm run package
 ```
 
 Packaged builds include `python/` service files and auto-start the transcription service on app launch.
-To keep installer size smaller, `.venv` is not bundled. On first packaged launch, the app creates a runtime venv and installs `python/requirements.txt`.
+To keep installer size smaller, `.venv` is not bundled. On first packaged launch, the app creates a runtime venv and installs `python/requirements-core.txt`.
+If local diarization is enabled, `python/requirements-diarization.txt` is installed on demand.
 Current requirement: Python must be installed and available on PATH on the target machine.
 
 ## Notes

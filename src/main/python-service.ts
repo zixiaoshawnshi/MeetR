@@ -1,10 +1,14 @@
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process'
-import { existsSync, mkdirSync } from 'fs'
-import { app } from 'electron'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
 
 let pythonProc: ChildProcessWithoutNullStreams | null = null
 let setupPromise: Promise<void> | null = null
+let pythonState: 'stopped' | 'starting' | 'ready' | 'error' = 'stopped'
+let lastError: string | null = null
+const MAX_LOG_LINES = 120
+const recentLogs: string[] = []
 
 function pythonEntryPath(): string {
   if (app.isPackaged) {
@@ -22,9 +26,64 @@ function pythonWorkingDir(): string {
 
 function requirementsPath(): string {
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'python', 'requirements.txt')
+    return join(process.resourcesPath, 'python', 'requirements-core.txt')
   }
-  return join(process.cwd(), 'python', 'requirements.txt')
+  return join(process.cwd(), 'python', 'requirements-core.txt')
+}
+
+function diarizationRequirementsPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'python', 'requirements-diarization.txt')
+  }
+  return join(process.cwd(), 'python', 'requirements-diarization.txt')
+}
+
+function diarizationRuntimeMarkerPath(): string {
+  return join(runtimeVenvDir(), '.diarization-runtime-v1')
+}
+
+export interface PythonBackendStatus {
+  state: 'stopped' | 'starting' | 'ready' | 'error'
+  lastError: string | null
+  recentLogs: string[]
+}
+
+function snapshotBackendStatus(): PythonBackendStatus {
+  return {
+    state: pythonState,
+    lastError,
+    recentLogs: recentLogs.slice(-40)
+  }
+}
+
+function emitBackendStatus(): void {
+  const payload = snapshotBackendStatus()
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('transcription:backend-status', payload)
+  }
+}
+
+function pushLog(line: string): void {
+  const trimmed = line.trim()
+  if (!trimmed) return
+  recentLogs.push(trimmed)
+  if (recentLogs.length > MAX_LOG_LINES) {
+    recentLogs.splice(0, recentLogs.length - MAX_LOG_LINES)
+  }
+}
+
+function setBackendState(state: 'stopped' | 'starting' | 'ready' | 'error', error?: string | null): void {
+  pythonState = state
+  if (typeof error !== 'undefined') {
+    lastError = error
+  } else if (state === 'ready' || state === 'stopped' || state === 'starting') {
+    lastError = null
+  }
+  emitBackendStatus()
+}
+
+export function getPythonBackendStatus(): PythonBackendStatus {
+  return snapshotBackendStatus()
 }
 
 function runtimeVenvDir(): string {
@@ -136,7 +195,7 @@ async function ensurePackagedPythonRuntime(): Promise<void> {
   const doSetup = async () => {
     const reqPath = requirementsPath()
     if (!existsSync(reqPath)) {
-      throw new Error(`requirements.txt not found: ${reqPath}`)
+      throw new Error(`core requirements file not found: ${reqPath}`)
     }
 
     mkdirSync(runtimeVenvDir(), { recursive: true })
@@ -162,7 +221,7 @@ async function ensurePackagedPythonRuntime(): Promise<void> {
       runtimePy,
       ['-m', 'pip', 'install', '-r', reqPath],
       runtimeVenvDir(),
-      'pip-install'
+      'pip-install-core'
     )
     console.log('[python-service] Runtime Python environment is ready.')
   }
@@ -177,10 +236,14 @@ async function ensurePackagedPythonRuntime(): Promise<void> {
 
 export async function startPythonService(): Promise<void> {
   if (pythonProc) return
+  setBackendState('starting')
 
   const entry = pythonEntryPath()
   if (!existsSync(entry)) {
-    console.error(`[python-service] Python entry not found: ${entry}`)
+    const msg = `Python entry not found: ${entry}`
+    console.error(`[python-service] ${msg}`)
+    pushLog(`[python-service] ${msg}`)
+    setBackendState('error', msg)
     return
   }
 
@@ -189,6 +252,8 @@ export async function startPythonService(): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     console.error(`[python-service] Runtime setup failed: ${message}`)
+    pushLog(`[python-service] Runtime setup failed: ${message}`)
+    setBackendState('error', `Runtime setup failed: ${message}`)
     return
   }
 
@@ -198,7 +263,10 @@ export async function startPythonService(): Promise<void> {
 
   const trySpawn = (index: number): void => {
     if (index >= candidates.length) {
-      console.error('[python-service] Could not find a usable Python executable.')
+      const msg = 'Could not find a usable Python executable.'
+      console.error(`[python-service] ${msg}`)
+      pushLog(`[python-service] ${msg}`)
+      setBackendState('error', msg)
       return
     }
 
@@ -217,6 +285,8 @@ export async function startPythonService(): Promise<void> {
       pythonProc = proc
       console.log(`[python-service] Started with "${candidate.command} ${candidate.args.join(' ')}".`)
       console.log(`[python-service] Script: ${entry}`)
+      pushLog(`[python-service] Started with "${candidate.command} ${candidate.args.join(' ')}".`)
+      setBackendState('ready')
     })
 
     proc.once('error', (err: NodeJS.ErrnoException) => {
@@ -225,19 +295,34 @@ export async function startPythonService(): Promise<void> {
         return
       }
       console.error('[python-service] Failed to start:', err.message)
+      pushLog(`[python-service] Failed to start: ${err.message}`)
+      setBackendState('error', `Failed to start backend: ${err.message}`)
     })
 
     proc.stdout.on('data', (chunk) => {
-      console.log(`[python-service] ${String(chunk).trimEnd()}`)
+      const line = String(chunk).trimEnd()
+      console.log(`[python-service] ${line}`)
+      pushLog(`[python-service] ${line}`)
     })
 
     proc.stderr.on('data', (chunk) => {
-      console.error(`[python-service] ${String(chunk).trimEnd()}`)
+      const line = String(chunk).trimEnd()
+      console.error(`[python-service] ${line}`)
+      pushLog(`[python-service] ${line}`)
+      if (line) {
+        setBackendState('error', line)
+      }
     })
 
     proc.on('exit', (code, signal) => {
       if (pythonProc === proc) pythonProc = null
       console.log(`[python-service] Exited (code=${code ?? 'null'} signal=${signal ?? 'null'})`)
+      pushLog(`[python-service] Exited (code=${code ?? 'null'} signal=${signal ?? 'null'})`)
+      if ((code ?? 0) === 0) {
+        setBackendState('stopped')
+      } else {
+        setBackendState('error', `Backend exited (code=${code ?? 'null'})`)
+      }
       // If this candidate dies almost immediately, try the next one.
       if ((code ?? 0) !== 0 && Date.now() - startedAt <= QUICK_EXIT_MS) {
         trySpawn(index + 1)
@@ -246,6 +331,31 @@ export async function startPythonService(): Promise<void> {
   }
 
   trySpawn(0)
+}
+
+export async function ensureOptionalDiarizationRuntime(): Promise<void> {
+  if (!app.isPackaged) return
+
+  await ensurePackagedPythonRuntime()
+  if (existsSync(diarizationRuntimeMarkerPath())) {
+    return
+  }
+
+  const reqPath = diarizationRequirementsPath()
+  if (!existsSync(reqPath)) {
+    throw new Error(`diarization requirements file not found: ${reqPath}`)
+  }
+
+  const runtimePy = runtimeVenvPythonPath()
+  console.log('[python-service] Installing optional diarization dependencies...')
+  await runCommand(
+    runtimePy,
+    ['-m', 'pip', 'install', '-r', reqPath],
+    runtimeVenvDir(),
+    'pip-install-diarization'
+  )
+  writeFileSync(diarizationRuntimeMarkerPath(), new Date().toISOString(), 'utf8')
+  console.log('[python-service] Optional diarization dependencies are ready.')
 }
 
 export async function stopPythonService(): Promise<void> {
@@ -269,4 +379,5 @@ export async function stopPythonService(): Promise<void> {
   })
 
   if (pythonProc === proc) pythonProc = null
+  setBackendState('stopped')
 }

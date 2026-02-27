@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('transcription:stop', sessionId),
     status: () =>
       ipcRenderer.invoke('transcription:status'),
+    backendStatus: () =>
+      ipcRenderer.invoke('transcription:backend-status'),
     inputDevices: () =>
       ipcRenderer.invoke('transcription:input-devices'),
     segments: (sessionId: number) =>
@@ -37,6 +39,11 @@ contextBridge.exposeInMainWorld('api', {
         cb(state)
       ipcRenderer.on('transcription:state', handler)
       return () => ipcRenderer.removeListener('transcription:state', handler)
+    },
+    onBackendStatus: (cb: (status: unknown) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, status: unknown): void => cb(status)
+      ipcRenderer.on('transcription:backend-status', handler)
+      return () => ipcRenderer.removeListener('transcription:backend-status', handler)
     }
   },
   recording: {

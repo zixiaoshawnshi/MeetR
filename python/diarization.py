@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 import numpy as np
-import torch
 
 log = logging.getLogger(__name__)
 
@@ -91,6 +90,9 @@ class SpeakerTracker:
         self._load_model()
         if self._model is None:
             raise RuntimeError("Speaker model failed to load")
+        # Keep torch import lazy so base installs can run without diarization deps.
+        import torch
+
         waveform = torch.tensor(audio_pcm, dtype=torch.float32).unsqueeze(0)
         result = self._model({"waveform": waveform, "sample_rate": sample_rate})
         return np.array(result).flatten()

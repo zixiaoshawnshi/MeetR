@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { SessionData, TranscriptionInputDevice } from '../types'
+import { SessionData, TranscriptionBackendStatus, TranscriptionInputDevice } from '../types'
 
 interface ToolbarProps {
   session: SessionData | null
@@ -16,6 +16,7 @@ interface ToolbarProps {
   inputDevices: TranscriptionInputDevice[]
   selectedInputDeviceId: number | null
   onInputDeviceChange: (deviceId: number | null) => void
+  backendStatus: TranscriptionBackendStatus | null
 }
 
 export default function Toolbar({
@@ -32,7 +33,8 @@ export default function Toolbar({
   recordingsCount,
   inputDevices,
   selectedInputDeviceId,
-  onInputDeviceChange
+  onInputDeviceChange,
+  backendStatus
 }: ToolbarProps) {
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(session?.title ?? '')
@@ -52,6 +54,16 @@ export default function Toolbar({
     setEditingTitle(false)
     if (trimmed !== session?.title) onTitleChange(trimmed)
   }
+
+  const backendWarning =
+    backendStatus &&
+    (backendStatus.python.state === 'error' ||
+      backendStatus.python.state === 'stopped' ||
+      !backendStatus.serviceReachable)
+      ? backendStatus.python.lastError ??
+        backendStatus.serviceError ??
+        'Transcription backend is not reachable.'
+      : null
 
   return (
     <div className="flex flex-col shrink-0">
@@ -174,6 +186,13 @@ export default function Toolbar({
           <span className="text-red-500 text-xs ml-1">
             Make sure the Python transcription service is running: <code className="font-mono">python python/main.py</code>
           </span>
+        </div>
+      )}
+
+      {backendWarning && (
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-amber-950/50 border-b border-amber-900/50">
+          <span className="text-amber-300 text-xs">Backend</span>
+          <span className="text-amber-200 text-xs">{backendWarning}</span>
         </div>
       )}
 

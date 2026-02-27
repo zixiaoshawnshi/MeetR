@@ -6,6 +6,7 @@ import { tmpdir } from 'os'
 import { getDb } from '../database'
 import { getSettings, recordingsBaseDir } from '../settings'
 import { transcodeAudioToWav16kMono, transcodeWavToFlac } from '../audio-transcode'
+import { ensureOptionalDiarizationRuntime, getPythonBackendStatus } from '../python-service'
 import {
   startTranscriptionWs,
   stopTranscriptionWs,
@@ -118,6 +119,9 @@ export function registerTranscriptionHandlers(): void {
 
       try {
         const settings = getSettings()
+        if (settings.transcription.mode === 'local' && settings.transcription.diarizationEnabled) {
+          await ensureOptionalDiarizationRuntime()
+        }
         const startedAt = new Date().toISOString()
         const outPath = recordingOutputPath(sessionId, startedAt)
         await startTranscriptionWs(
@@ -172,6 +176,25 @@ export function registerTranscriptionHandlers(): void {
   /** Returns whether transcription is currently active. */
   ipcMain.handle('transcription:status', (): boolean => isTranscribing())
 
+  /** Returns Python backend status plus a lightweight connectivity probe. */
+  ipcMain.handle(
+    'transcription:backend-status',
+    async (): Promise<{
+      python: ReturnType<typeof getPythonBackendStatus>
+      serviceReachable: boolean
+      serviceError: string | null
+    }> => {
+      const python = getPythonBackendStatus()
+      try {
+        await listInputDevicesWs()
+        return { python, serviceReachable: true, serviceError: null }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { python, serviceReachable: false, serviceError: message }
+      }
+    }
+  )
+
   /** List available microphone input devices from the Python service host. */
   ipcMain.handle('transcription:input-devices', async (): Promise<InputDevicePayload[]> => {
     return await listInputDevicesWs()
@@ -201,6 +224,9 @@ export function registerTranscriptionHandlers(): void {
       let filePathForTranscription = normalizedPath
       try {
         const settings = getSettings()
+        if (settings.transcription.mode === 'local' && settings.transcription.diarizationEnabled) {
+          await ensureOptionalDiarizationRuntime()
+        }
         const imported: SegmentPayload[] = []
         if (settings.transcription.mode === 'deepgram') {
           filePathForTranscription = await ensureDeepgramFlacRecordingPath(sessionId, normalizedPath)

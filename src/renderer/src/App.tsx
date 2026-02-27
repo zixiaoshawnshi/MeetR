@@ -3,6 +3,8 @@ import {
   AppSettings,
   AppPathsInfo,
   AppSettingsPatch,
+  TranscriptionBackendStatus,
+  PythonBackendStatus,
   SessionData,
   SessionRecording,
   TranscriptSegment,
@@ -44,10 +46,25 @@ export default function App() {
   const [importingTranscript, setImportingTranscript] = useState(false)
   const [importTranscriptError, setImportTranscriptError] = useState<string | null>(null)
   const [showTranscribeDialog, setShowTranscribeDialog] = useState(false)
+  const [backendStatus, setBackendStatus] = useState<TranscriptionBackendStatus | null>(null)
 
   const consentGivenRef = useRef(false)
 
   useEffect(() => {
+    const refreshBackendStatus = async () => {
+      try {
+        const status = await window.api.transcription.backendStatus()
+        setBackendStatus(status)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setBackendStatus((prev) => ({
+          python: prev?.python ?? { state: 'error', lastError: message, recentLogs: [] },
+          serviceReachable: false,
+          serviceError: message
+        }))
+      }
+    }
+
     const loadSettingsAndDevices = async () => {
       try {
         const loadedSettings = await window.api.settings.get()
@@ -72,10 +89,29 @@ export default function App() {
         setSelectedInputDeviceId(systemDefault)
       } catch (error) {
         console.error('Failed to list input devices', error)
+        await refreshBackendStatus()
       }
     }
 
+    void refreshBackendStatus()
     void loadSettingsAndDevices()
+
+    const interval = window.setInterval(() => {
+      void refreshBackendStatus()
+    }, 15000)
+
+    const unsubBackendStatus = window.api.transcription.onBackendStatus((pythonStatus) => {
+      setBackendStatus((prev) => ({
+        python: pythonStatus as PythonBackendStatus,
+        serviceReachable: prev?.serviceReachable ?? (pythonStatus as PythonBackendStatus).state === 'ready',
+        serviceError: prev?.serviceError ?? null
+      }))
+    })
+
+    return () => {
+      window.clearInterval(interval)
+      unsubBackendStatus()
+    }
   }, [])
 
   useEffect(() => {
@@ -387,6 +423,7 @@ export default function App() {
             inputDevices={inputDevices}
             selectedInputDeviceId={selectedInputDeviceId}
             onInputDeviceChange={setSelectedInputDeviceId}
+            backendStatus={backendStatus}
           />
 
           <div className="flex flex-col flex-1 min-h-0">
